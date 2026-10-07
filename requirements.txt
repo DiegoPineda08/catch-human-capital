@@ -1,8 +1,12 @@
-pandas
-numpy
-scipy
-scikit-learn
-openpyxl
-plotly
-streamlit
-python-dotenv
+# Librerías que necesita DINAMO. Se instalan todas con:  pip install -r requirements.txt
+# Python 3.10 o superior (recomendado 3.11)
+pandas>=2.0          # tablas y cálculos (Ingesta, Data Engine y Skills)
+numpy>=1.24          # cálculos numéricos (lo usa pandas)
+openpyxl>=3.1        # leer archivos Excel (.xlsx)
+pdfplumber>=0.11     # leer PDFs: texto y tablas
+requests>=2.31       # hablar con Ollama, el LLM local
+scipy>=1.10          # estadística (correlaciones en la Skill de relaciones)
+scikit-learn>=1.3    # TF-IDF para el RAC v1
+streamlit>=1.35      # la interfaz web (Presentation Engine)
+plotly>=5.20         # gráficos interactivos
+pytest>=8.0          # correr los tests

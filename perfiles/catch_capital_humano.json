@@ -1,0 +1,569 @@
+{
+  "archivo": "BASE_HISTORICA_LIMPIA.xlsx",
+  "hoja": "MODELO_ANALITICO",
+  "nombre": "catch_capital_humano",
+  "descripcion": "Encuesta bimestral de Capital Humano de Catch Consulting: 40 empresas (la mayoría proveedores de la industria automotriz en México), 7 bimestres de Julio-Agosto 2024 a Julio-Agosto 2025.",
+  "entidad_singular": "empresa",
+  "entidad_plural": "empresas",
+  "columnas": [
+    {
+      "nombre": "id_empresa",
+      "rol": "entidad"
+    },
+    {
+      "nombre": "empresa",
+      "rol": "nombre_entidad"
+    },
+    {
+      "nombre": "orden_periodo",
+      "rol": "tiempo",
+      "etiqueta": "bimestre"
+    },
+    {
+      "nombre": "periodo_etiqueta",
+      "rol": "etiqueta_tiempo"
+    },
+    {
+      "nombre": "reporto_bimestre",
+      "rol": "validez",
+      "descripcion": "1 = la empresa reportó ese bimestre; 0 = valores imputados."
+    },
+    {
+      "nombre": "periodo",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "fecha_inicio_bimestre",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "dias_habiles_bimestre",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_rotacion_bimestral",
+      "rol": "metrica",
+      "etiqueta": "tasa de rotación",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "rotacion",
+        "bajas",
+        "salidas",
+        "renuncias",
+        "turnover",
+        "se van"
+      ],
+      "mayor_es_mejor": false,
+      "descripcion": "Bajas del bimestre / headcount total. 0.07 = 7% de la plantilla salió en el bimestre."
+    },
+    {
+      "nombre": "tasa_ausentismo_bimestral",
+      "rol": "metrica",
+      "etiqueta": "tasa de ausentismo",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "ausentismo",
+        "faltas",
+        "inasistencias",
+        "ausencias",
+        "faltan"
+      ],
+      "mayor_es_mejor": false,
+      "descripcion": "Faltas / (headcount x días hábiles del bimestre). Proporción de jornadas perdidas."
+    },
+    {
+      "nombre": "tasa_incapacidad_bimestral",
+      "rol": "metrica",
+      "etiqueta": "tasa de incapacidad",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "incapacidad",
+        "incapacidades",
+        "accidentes",
+        "enfermedad"
+      ],
+      "mayor_es_mejor": false,
+      "descripcion": "Casos de incapacidad / headcount. Algunas empresas parecen reportar días en lugar de casos."
+    },
+    {
+      "nombre": "tasa_contratacion_bimestral",
+      "rol": "metrica",
+      "etiqueta": "tasa de contratación",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "contratacion",
+        "contrataciones",
+        "contratar",
+        "reclutamiento",
+        "ingresos"
+      ],
+      "descripcion": "Contrataciones del bimestre / headcount total."
+    },
+    {
+      "nombre": "salario_diario_inicial",
+      "rol": "metrica",
+      "etiqueta": "salario diario inicial",
+      "unidad": "moneda",
+      "sinonimos": [
+        "salario inicial",
+        "salario de entrada",
+        "sueldo inicial",
+        "salario"
+      ],
+      "mayor_es_mejor": true,
+      "descripcion": "Salario diario de entrada del personal operativo, en pesos mexicanos (MXN)."
+    },
+    {
+      "nombre": "salario_diario_maximo",
+      "rol": "metrica",
+      "etiqueta": "salario diario máximo",
+      "unidad": "moneda",
+      "sinonimos": [
+        "salario maximo",
+        "sueldo maximo",
+        "techo salarial"
+      ],
+      "mayor_es_mejor": true
+    },
+    {
+      "nombre": "brecha_salarial_max_ini",
+      "rol": "metrica",
+      "etiqueta": "brecha salarial (máximo / inicial)",
+      "unidad": "numero",
+      "sinonimos": [
+        "brecha salarial",
+        "crecimiento salarial"
+      ]
+    },
+    {
+      "nombre": "aguinaldo_dias__personaloperativo_1_ano",
+      "rol": "metrica",
+      "etiqueta": "días de aguinaldo (1er año, operativo)",
+      "unidad": "dias",
+      "sinonimos": [
+        "aguinaldo"
+      ],
+      "mayor_es_mejor": true
+    },
+    {
+      "nombre": "hc_total",
+      "rol": "metrica",
+      "etiqueta": "headcount total",
+      "unidad": "conteo",
+      "sinonimos": [
+        "headcount",
+        "plantilla",
+        "empleados",
+        "tamano",
+        "tamaño"
+      ],
+      "descripcion": "Empleados operativos + administrativos."
+    },
+    {
+      "nombre": "pct_mujeres",
+      "rol": "metrica",
+      "etiqueta": "porcentaje de mujeres",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "mujeres",
+        "genero",
+        "género"
+      ]
+    },
+    {
+      "nombre": "pct_menores_30",
+      "rol": "metrica",
+      "etiqueta": "porcentaje de menores de 30 años",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "jovenes",
+        "menores de 30",
+        "edad"
+      ]
+    },
+    {
+      "nombre": "relacion_sindicato_score",
+      "rol": "metrica",
+      "etiqueta": "calidad de la relación con el sindicato",
+      "unidad": "escala",
+      "sinonimos": [
+        "relacion con el sindicato"
+      ],
+      "descripcion": "3 = excelente, 2 = buena, 1 = regular, 0 = mala, -1 = no tiene sindicato."
+    },
+    {
+      "nombre": "crecimiento_plan_hc_1_anio",
+      "rol": "metrica",
+      "etiqueta": "crecimiento planeado de plantilla a 1 año",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "crecimiento",
+        "plan de crecimiento"
+      ]
+    },
+    {
+      "nombre": "candidatos_aceptados_de_10",
+      "rol": "metrica",
+      "etiqueta": "candidatos aceptados de cada 10",
+      "unidad": "escala",
+      "sinonimos": [
+        "candidatos aceptados"
+      ]
+    },
+    {
+      "nombre": "motivo_baja_frecuencia__otro_empleo_mejor_sueldo",
+      "rol": "metrica",
+      "etiqueta": "frecuencia del motivo 'otro empleo con mejor sueldo'",
+      "unidad": "escala",
+      "sinonimos": [
+        "mejor sueldo"
+      ],
+      "descripcion": "0 nunca ... 5 siempre.",
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "nivel_proveeduria",
+      "rol": "dimension",
+      "etiqueta": "nivel de proveeduría automotriz",
+      "sinonimos": [
+        "tier",
+        "proveeduria",
+        "nivel de proveeduria"
+      ]
+    },
+    {
+      "nombre": "categoria_industrial",
+      "rol": "dimension",
+      "etiqueta": "categoría industrial",
+      "sinonimos": [
+        "categoria",
+        "industria",
+        "proceso",
+        "sector"
+      ]
+    },
+    {
+      "nombre": "escolaridad_minima",
+      "rol": "dimension",
+      "etiqueta": "escolaridad mínima exigida",
+      "sinonimos": [
+        "escolaridad"
+      ]
+    },
+    {
+      "nombre": "tiene_sindicato_bin",
+      "rol": "binaria",
+      "etiqueta": "tiene sindicato",
+      "sinonimos": [
+        "sindicato",
+        "sindicalizadas",
+        "sindicalizada"
+      ]
+    },
+    {
+      "nombre": "otorga_transporte_bin",
+      "rol": "binaria",
+      "etiqueta": "otorga transporte",
+      "sinonimos": [
+        "transporte"
+      ]
+    },
+    {
+      "nombre": "otorga_comedor_bin",
+      "rol": "binaria",
+      "etiqueta": "otorga comedor",
+      "sinonimos": [
+        "comedor"
+      ]
+    },
+    {
+      "nombre": "otorga_sgmm_bin",
+      "rol": "binaria",
+      "etiqueta": "otorga seguro de gastos médicos",
+      "sinonimos": [
+        "sgmm",
+        "seguro de gastos medicos"
+      ]
+    },
+    {
+      "nombre": "otorga_bono_permanencia_bin",
+      "rol": "binaria",
+      "etiqueta": "otorga bono de permanencia",
+      "sinonimos": [
+        "bono de permanencia"
+      ]
+    },
+    {
+      "nombre": "jornada_12h_bin",
+      "rol": "binaria",
+      "etiqueta": "jornadas de 12 horas",
+      "sinonimos": [
+        "jornada de 12",
+        "12 horas"
+      ]
+    },
+    {
+      "nombre": "rota_turnos_bin",
+      "rol": "binaria",
+      "etiqueta": "rota turnos",
+      "sinonimos": [
+        "rotar turnos",
+        "rota turnos",
+        "turnos rotativos"
+      ]
+    },
+    {
+      "nombre": "tasa_rotacion_bimestral__fuente",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_rotacion_bimestral__imputado",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_ausentismo_bimestral__fuente",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_ausentismo_bimestral__imputado",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_incapacidad_bimestral__fuente",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_incapacidad_bimestral__imputado",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_contratacion_bimestral__fuente",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "tasa_contratacion_bimestral__imputado",
+      "rol": "ignorar"
+    },
+    {
+      "nombre": "incremento_otorgado__de_incremento_otorgado_2023_en_salario_person",
+      "rol": "metrica",
+      "etiqueta": "incremento salarial otorgado (operativo)",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "incremento salarial",
+        "aumento salarial",
+        "incremento"
+      ]
+    },
+    {
+      "nombre": "vales_fondo_ahorro__vales_de_despensa_personal_operativo_ofertado",
+      "rol": "metrica",
+      "etiqueta": "vales de despensa (operativo)",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "vales de despensa",
+        "despensa",
+        "vales"
+      ]
+    },
+    {
+      "nombre": "vales_fondo_ahorro__fondo_de_ahorro_personal_operativo_ofertado",
+      "rol": "metrica",
+      "etiqueta": "fondo de ahorro (operativo)",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "fondo de ahorro"
+      ]
+    },
+    {
+      "nombre": "bonos_pct__bono_de_asistencia_de_bonos",
+      "rol": "metrica",
+      "etiqueta": "bono de asistencia",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "bono de asistencia"
+      ]
+    },
+    {
+      "nombre": "bonos_pct__bono_de_puntualidad_de_bonos",
+      "rol": "metrica",
+      "etiqueta": "bono de puntualidad",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "bono de puntualidad",
+        "puntualidad"
+      ]
+    },
+    {
+      "nombre": "dias_descanso_adicionales",
+      "rol": "metrica",
+      "etiqueta": "días de descanso adicionales",
+      "unidad": "dias",
+      "sinonimos": [
+        "dias de descanso",
+        "descanso adicional"
+      ]
+    },
+    {
+      "nombre": "dias_reclutamiento__operativos_grupo_de_30_candidatos_dias_en_pro",
+      "rol": "metrica",
+      "etiqueta": "días para cubrir una vacante operativa",
+      "unidad": "dias",
+      "sinonimos": [
+        "dias de reclutamiento",
+        "tiempo de reclutamiento",
+        "cubrir una vacante"
+      ]
+    },
+    {
+      "nombre": "plazas_proximas__plazas_operativas_proximas_a_contratar",
+      "rol": "metrica",
+      "etiqueta": "plazas operativas por cubrir",
+      "unidad": "numero",
+      "sinonimos": [
+        "plazas por cubrir",
+        "vacantes",
+        "plazas"
+      ]
+    },
+    {
+      "nombre": "horas_capacitacion_por_empleado",
+      "rol": "metrica",
+      "etiqueta": "horas de capacitación por empleado",
+      "unidad": "numero",
+      "sinonimos": [
+        "capacitacion",
+        "horas de capacitacion",
+        "formacion",
+        "entrenamiento"
+      ]
+    },
+    {
+      "nombre": "citatorios_total",
+      "rol": "metrica",
+      "etiqueta": "citatorios conciliatorios",
+      "unidad": "conteo",
+      "sinonimos": [
+        "citatorios",
+        "conflictos laborales",
+        "demandas"
+      ]
+    },
+    {
+      "nombre": "reporta_riesgos_seguridad",
+      "rol": "binaria",
+      "etiqueta": "reporta riesgos de seguridad",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "inseguridad",
+        "riesgos de seguridad"
+      ]
+    },
+    {
+      "nombre": "pct_bajas_renuncia_voluntaria",
+      "rol": "metrica",
+      "etiqueta": "% de bajas por renuncia voluntaria",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "renuncia voluntaria",
+        "bajas voluntarias"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "pct_bajas_abandono",
+      "rol": "metrica",
+      "etiqueta": "% de bajas por abandono",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "abandono",
+        "abandono de trabajo"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "pct_bajas_primeros_3_meses",
+      "rol": "metrica",
+      "etiqueta": "% de bajas en los primeros 3 meses",
+      "unidad": "proporcion",
+      "sinonimos": [
+        "rotacion temprana",
+        "bajas tempranas",
+        "primeros 3 meses"
+      ],
+      "mayor_es_mejor": false,
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "motivo_baja_frecuencia__otro_empleo_mas_cerca_de_su_casa",
+      "rol": "metrica",
+      "etiqueta": "frecuencia del motivo 'otro empleo más cerca de casa'",
+      "unidad": "escala",
+      "sinonimos": [
+        "cerca de casa",
+        "cercania"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "motivo_baja_frecuencia__otro_empleo_mejor_horario",
+      "rol": "metrica",
+      "etiqueta": "frecuencia del motivo 'otro empleo con mejor horario'",
+      "unidad": "escala",
+      "sinonimos": [
+        "mejor horario"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "motivo_baja_frecuencia__otro_empleo_mejores_prestaciones",
+      "rol": "metrica",
+      "etiqueta": "frecuencia del motivo 'otro empleo con mejores prestaciones'",
+      "unidad": "escala",
+      "sinonimos": [
+        "mejores prestaciones"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "motivo_baja_frecuencia__problemas_con_jefe_supervisor",
+      "rol": "metrica",
+      "etiqueta": "frecuencia del motivo 'problemas con el jefe'",
+      "unidad": "escala",
+      "sinonimos": [
+        "problemas con el jefe",
+        "jefe",
+        "supervisor"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    },
+    {
+      "nombre": "motivo_baja_frecuencia__horario_complicado",
+      "rol": "metrica",
+      "etiqueta": "frecuencia del motivo 'horario complicado'",
+      "unidad": "escala",
+      "sinonimos": [
+        "horario complicado"
+      ],
+      "describe_a": [
+        "tasa_rotacion_bimestral"
+      ]
+    }
+  ]
+}
