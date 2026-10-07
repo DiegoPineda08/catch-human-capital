@@ -6,12 +6,15 @@ from typing import Any
 from dinamo.core.contracts import ResultadoSkill, crear_evidencia
 from dinamo.data_engine import DataEngine
 
-from .base import Skill, columna_con_rol, filtros_de
+from .base import Skill, agregar, columna_con_rol, filtros_de
 
 
 class Ranking(Skill):
     nombre = "ranking"
-    descripcion = "Ordena las entidades por el promedio de una métrica en sus periodos con dato real."
+    descripcion = (
+        "Ordena las entidades según la agregación declarada para la métrica "
+        "sobre sus periodos con dato real."
+    )
     intenciones = ("ranking",)
     requiere = ("entidad", "metrica")
     parametros = {
@@ -23,8 +26,13 @@ class Ranking(Skill):
     }
     requeridos = ("metrica",)
 
-    def ejecutar(self, datos: DataEngine, parametros: dict[str, Any]) -> ResultadoSkill:
+    def ejecutar(
+        self,
+        datos: DataEngine,
+        parametros: dict[str, Any],
+    ) -> ResultadoSkill:
         p = datos.perfil
+
         met = columna_con_rol(
             p,
             parametros["metrica"],
@@ -41,7 +49,7 @@ class Ranking(Skill):
         df = datos.filas(
             solo_validas=True,
             **filtros,
-        ).dropna(subset=[met.nombre])
+        ).dropna(subset=[met.nombre, ent.nombre])
 
         if tiempo is not None:
             df = df.dropna(subset=[tiempo.nombre])
@@ -55,7 +63,9 @@ class Ranking(Skill):
             )
 
         if tiempo is not None:
-            n_periodos = int(df[tiempo.nombre].nunique())
+            n_periodos = int(
+                df[tiempo.nombre].nunique()
+            )
         else:
             n_periodos = 0
 
@@ -66,17 +76,45 @@ class Ranking(Skill):
             )
         )
 
-        claves = [ent.nombre] + ([nom.nombre] if nom else [])
-
-        por_ent = (
-            df.groupby(claves)[met.nombre]
-            .agg(valor="mean")
-            .reset_index()
-        )
-
         if tiempo is not None:
+            # Primero se elimina la posible inflación causada por varias
+            # filas de una misma entidad en el mismo periodo.
+            por_entidad_periodo = (
+                df.groupby(
+                    [ent.nombre, tiempo.nombre],
+                    sort=False,
+                    dropna=False,
+                )[met.nombre]
+                .agg(
+                    valor=lambda serie: agregar(
+                        serie,
+                        met.agregacion,
+                    )
+                )
+                .reset_index()
+            )
+
+            # Después se comparan las entidades a partir de la agregación
+            # declarada en el perfil sobre sus periodos disponibles.
+            por_ent = (
+                por_entidad_periodo.groupby(
+                    ent.nombre,
+                    sort=False,
+                )["valor"]
+                .agg(
+                    valor=lambda serie: agregar(
+                        serie,
+                        met.agregacion,
+                    )
+                )
+                .reset_index()
+            )
+
             periodos_por_entidad = (
-                df.groupby(claves)[tiempo.nombre]
+                por_entidad_periodo.groupby(
+                    ent.nombre,
+                    sort=False,
+                )[tiempo.nombre]
                 .nunique()
                 .rename("periodos")
                 .reset_index()
@@ -84,14 +122,48 @@ class Ranking(Skill):
 
             por_ent = por_ent.merge(
                 periodos_por_entidad,
-                on=claves,
+                on=ent.nombre,
                 how="left",
             )
         else:
-            por_ent["periodos"] = df.groupby(claves)[met.nombre].count().to_numpy()
+            por_ent = (
+                df.groupby(
+                    ent.nombre,
+                    sort=False,
+                    dropna=False,
+                )[met.nombre]
+                .agg(
+                    valor=lambda serie: agregar(
+                        serie,
+                        met.agregacion,
+                    )
+                )
+                .reset_index()
+            )
 
-        excluidas = int((por_ent["periodos"] < min_periodos).sum())
-        elegibles = por_ent[por_ent["periodos"] >= min_periodos]
+            periodos_por_entidad = (
+                df.groupby(
+                    ent.nombre,
+                    sort=False,
+                )[met.nombre]
+                .count()
+                .rename("periodos")
+                .reset_index()
+            )
+
+            por_ent = por_ent.merge(
+                periodos_por_entidad,
+                on=ent.nombre,
+                how="left",
+            )
+
+        excluidas = int(
+            (por_ent["periodos"] < min_periodos).sum()
+        )
+
+        elegibles = por_ent[
+            por_ent["periodos"] >= min_periodos
+        ]
 
         if elegibles.empty:
             return ResultadoSkill(
@@ -120,21 +192,50 @@ class Ranking(Skill):
             **filtros,
         }
 
-        metodo = (
-            "promedio de los periodos con dato real"
-            if n_periodos > 1
-            else "valor del periodo"
-            if n_periodos == 1
-            else "valor de la fila"
-        )
+        if tiempo is not None:
+            if n_periodos > 1:
+                metodo = (
+                    f"{met.agregacion} de los valores por periodo, "
+                    "después de agregarlos al nivel entidad-periodo"
+                )
+            else:
+                metodo = (
+                    f"{met.agregacion} del valor al nivel entidad-periodo"
+                )
+        else:
+            metodo = (
+                f"{met.agregacion} de los valores por "
+                f"{p.entidad_singular}"
+            )
+
+        if nom is not None:
+            nombres_entidad = (
+                df.dropna(subset=[nom.nombre])
+                .groupby(
+                    ent.nombre,
+                    sort=False,
+                )[nom.nombre]
+                .first()
+                .to_dict()
+            )
+        else:
+            nombres_entidad = {}
 
         evid = []
 
-        for pos, r in enumerate(top.itertuples(), start=1):
+        for pos, r in enumerate(
+            top.itertuples(),
+            start=1,
+        ):
+            entidad_id = getattr(r, ent.nombre)
+
             etiqueta = (
-                getattr(r, nom.nombre)
-                if nom
-                else f"{p.entidad_singular} {getattr(r, ent.nombre)}"
+                nombres_entidad.get(
+                    entidad_id,
+                    f"{p.entidad_singular} {entidad_id}",
+                )
+                if nom is not None
+                else f"{p.entidad_singular} {entidad_id}"
             )
 
             evid.append(
@@ -147,7 +248,7 @@ class Ranking(Skill):
                     metodo,
                     {
                         **ctx,
-                        ent.nombre: _simple(getattr(r, ent.nombre)),
+                        ent.nombre: _simple(entidad_id),
                     },
                 )
             )
@@ -159,7 +260,7 @@ class Ranking(Skill):
                 float(elegibles["valor"].median()),
                 met.unidad,
                 len(elegibles),
-                f"mediana de los promedios por {p.entidad_singular}",
+                f"mediana de los valores agregados por {p.entidad_singular}",
                 ctx,
             )
         )
@@ -174,13 +275,19 @@ class Ranking(Skill):
 
         datos_grafico = tuple(
             {
-                "entidad": _simple(getattr(r, ent.nombre)),
-                "nombre": (
-                    str(getattr(r, nom.nombre))
-                    if nom
-                    else str(getattr(r, ent.nombre))
+                "entidad": _simple(
+                    getattr(r, ent.nombre)
                 ),
-                "valor": round(float(r.valor), 6),
+                "nombre": str(
+                    nombres_entidad.get(
+                        getattr(r, ent.nombre),
+                        getattr(r, ent.nombre),
+                    )
+                ),
+                "valor": round(
+                    float(r.valor),
+                    6,
+                ),
                 "periodos": int(r.periodos),
             }
             for r in top.itertuples()
