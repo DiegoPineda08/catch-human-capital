@@ -1,151 +1,109 @@
-"""Prompts del LLM y validadores de sus respuestas.
+"""
+Construcción de prompts. El LLM INTERPRETA; no calcula.
 
-El LLM interpreta; nunca calcula (reglas 1 y 6). Este archivo hace cumplir eso en tres frentes:
-  1. SISTEMA le dice cómo responder (con un ejemplo de formato, few-shot).
-  2. citas_invalidas / cifras_sin_respaldo / cifras_sin_cita detectan cuando se salió del guion.
-  3. plantilla_respaldo produce una respuesta segura sin LLM cuando no hay forma de validar su texto.
-
-Nada aquí menciona un tema concreto: el mismo prompt sirve para rotación, ventas o cualquier
-Skill futura, porque el contenido llega siempre en las Evidencias.
+Por eso:
+- los valores llegan ya formateados por código (p.ej. 0.0925 -> "9.3%");
+- cada evidencia lleva un id que el LLM debe citar como [E:id];
+- cada fragmento de documento lleva su fuente, que el LLM cita como [C:fuente];
+- `citas_invalidas` detecta citas inventadas para que el Brain lo advierta;
+- el perfil del usuario cambia el TONO de la respuesta, nunca los números.
 """
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
-from typing import Iterable, Sequence
 
 from dinamo.core.contracts import Contexto, Evidencia
 
-# ---------------------------------------------------------------- prompt de sistema
-SISTEMA = """Eres DINAMO, un analista de datos que explica resultados a personas que no son técnicas.
-
-REGLAS (no tienen excepciones):
-1. Usa SÓLO las EVIDENCIAS que recibes. Cada cifra que escribas debe copiarse tal cual de una evidencia.
-2. Después de cada cifra, cita su evidencia con el formato [E:id], copiando el id exacto.
-3. No calcules, no redondees, no conviertas unidades y no compares cifras restándolas. Si hace falta una diferencia que no está en las evidencias, no la menciones.
-4. Habla de asociación ("se asocia con", "tiende a"); nunca de causa ("causa", "provoca", "por culpa de").
-5. Si las evidencias no alcanzan para responder, dilo con claridad y di qué dato faltaría. No rellenes con suposiciones.
-6. El CONTEXTO sirve sólo para explicar qué significa un término o cómo se calculó algo. No saques cifras del contexto que no estén también en las evidencias.
-7. Si la pregunta no tiene relación con las evidencias ni con el contexto, responde que no tienes información sobre eso.
-8. Responde en el mismo idioma de la pregunta, en 3 frases como máximo, sin títulos, listas ni viñetas.
-9. Si hay ADVERTENCIAS, menciona la más importante en una frase corta.
-
-EJEMPLO (sólo muestra el formato; tu tema será otro):
-Pregunta: ¿Cómo van las ventas de la sucursal Norte?
-Evidencias:
-[E:ventas:aa11bb22] Ventas del último mes, sucursal Norte = 120.5 miles de pesos (n=1, método: suma del mes)
-[E:ventas:cc33dd44] Mediana de ventas entre sucursales = 98 miles de pesos (n=12, método: mediana)
-Respuesta: La sucursal Norte vendió 120.5 miles de pesos en el último mes [E:ventas:aa11bb22]. La mediana de las 12 sucursales es de 98 miles de pesos [E:ventas:cc33dd44], así que Norte está por encima del centro del grupo. Son datos descriptivos: no explican por qué hay diferencia."""
+SISTEMA = """Eres DINAMO, un analista de datos que explica resultados a personas sin formación técnica.
+Reglas obligatorias:
+1. Usa SOLO las evidencias y el contexto que se te entregan. No inventes cifras.
+2. No hagas cálculos nuevos: copia los valores tal como aparecen en la evidencia.
+3. Cita cada cifra con su id entre corchetes, por ejemplo [E:tendencia:1a2b3c4d].
+4. Si usas un fragmento de un documento, cítalo con su fuente, por ejemplo [C:informe.pdf#p2].
+5. Una correlación NO es causalidad: usa "se asocia con", nunca "causa" o "provoca".
+6. Si la evidencia y el contexto no alcanzan para responder, dilo claramente.
+7. Adapta el tono a la persona que pregunta (ver PERSONA), pero nunca cambies las cifras.
+8. Responde en español, en máximo 6 frases, claro y sin tecnicismos."""
 
 
-def _valor(e: Evidencia) -> str:
-    from dinamo.llm import formatear_valor   # import tardío: evita ciclo con dinamo/llm/__init__.py
-    return formatear_valor(e)
+def _moneda(x: float) -> str:
+    return f"-${abs(x):,.0f}" if x < 0 else f"${x:,.0f}"
 
 
-def formatear_evidencias(evidencias: Sequence[Evidencia]) -> str:
-    """Una línea por evidencia: [E:id] descripción = valor (n=…, método: …)."""
-    return "\n".join(f"[E:{e.id}] {e.descripcion} = {_valor(e)} (n={e.n}, método: {e.metodo})"
-                     for e in evidencias) or "(sin evidencias)"
+def formatear_valor(e: Evidencia) -> str:
+    """Convierte el número en texto listo para leer, así el LLM nunca tiene que calcular."""
+    v = e.valor
+    if isinstance(v, str):
+        return v
+    formatos = {
+        "proporcion": lambda x: f"{x * 100:.1f}%",
+        "diferencia_proporcion": lambda x: f"{x * 100:+.1f} puntos porcentuales",
+        "cambio_relativo": lambda x: f"{x * 100:+.1f}%",
+        "rho": lambda x: f"{x:+.2f}",
+        "moneda": _moneda,
+        "conteo": lambda x: f"{x:,.0f}",
+        "dias": lambda x: f"{x:,.1f} días",
+        "escala": lambda x: f"{x:.2f}",
+    }
+    return formatos.get(e.unidad, lambda x: f"{x:,.4g}" if abs(x) < 1e6 else f"{x:,.0f}")(v)
 
 
-def formatear_contexto(contexto: Sequence[Contexto], max_chars: int = 500) -> str:
-    return "\n".join(f"- ({c.fuente}) {c.texto[:max_chars]}" for c in contexto) or "(sin contexto)"
+def construir_mensajes(pregunta: str, contexto: list[Contexto], evidencias: list[Evidencia],
+                       advertencias: list[str] | None = None, sobre_la_base: str = "",
+                       usuario: str = "") -> tuple[str, str]:
+    """Arma los dos mensajes del LLM: el de sistema (reglas) y el de usuario (todo el material)."""
+    bloque_ctx = "\n".join(f"- [C:{c.fuente}] " + " ".join(c.texto.split()) for c in contexto) or "(sin contexto)"
+    bloque_ev = "\n".join(f"- [E:{e.id}] {_de_tabla(e)}{e.descripcion}: {formatear_valor(e)} (n={e.n}; {e.metodo})"
+                          for e in evidencias) or "(sin evidencia)"
+    bloque_adv = "\n".join(f"- {a}" for a in (advertencias or [])) or "(ninguna)"
+    mensaje = (f"PERSONA:\n{usuario or '(sin datos del usuario)'}\n\n"
+               f"FUENTES:\n{sobre_la_base or '(sin descripción)'}\n\n"
+               f"PREGUNTA:\n{pregunta}\n\nCONTEXTO RECUPERADO:\n{bloque_ctx}\n\n"
+               f"EVIDENCIA:\n{bloque_ev}\n\nADVERTENCIAS:\n{bloque_adv}\n\n"
+               "Responde la pregunta siguiendo las reglas.")
+    return SISTEMA, mensaje
 
 
-def construir_prompt_usuario(pregunta: str, evidencias: Sequence[Evidencia],
-                             contexto: Sequence[Contexto] = (), advertencias: Iterable[str] = (),
-                             correcciones: Sequence[str] = ()) -> str:
-    partes = [f"Pregunta: {pregunta}", f"Evidencias:\n{formatear_evidencias(evidencias)}",
-              f"Contexto:\n{formatear_contexto(contexto)}"]
-    avisos = list(advertencias)
-    if avisos:
-        partes.append("Advertencias:\n" + "\n".join(f"- {a}" for a in avisos))
-    if correcciones:
-        partes.append("Tu respuesta anterior tuvo estos problemas; corrígelos y responde de nuevo:\n"
-                      + "\n".join(f"- {c}" for c in correcciones))
-    partes.append("Respuesta:")
-    return "\n\n".join(partes)
+def _de_tabla(e: Evidencia) -> str:
+    tabla = e.filtros.get("tabla")
+    return f"({tabla}) " if tabla else ""
 
 
-# ---------------------------------------------------------------- validadores
-_RE_CITA = re.compile(r"\[E:([^\]]+)\]")
-_RE_NUM = re.compile(r"\d[\d,]*(?:\.\d+)?|\d+(?:,\d+)?")
-NUM = r"\d+(?:\.\d+)?"          # compatibilidad con la guía
-
-
-def citas_invalidas(texto: str, evidencias: Sequence[Evidencia]) -> list[str]:
-    """Ids [E:…] que el LLM escribió y que no existen entre las evidencias."""
-    validos = {e.id for e in evidencias}
-    return sorted({i for i in _RE_CITA.findall(texto) if i not in validos})
-
-
-def _canon(s: str) -> str | None:
-    """'10,4' -> '10.4'; '35,200' -> '35200'; '10.40' -> '10.4'. None si no es un número."""
-    s = s.strip().strip(",")
-    if re.fullmatch(r"\d{1,3}(,\d{3})+(\.\d+)?", s):      # miles con coma
-        s = s.replace(",", "")
+def instruccion_perfil(perfil: dict | object) -> str:
+    """Instrucción de tono a partir del perfil del usuario (nunca cambia números)."""
+    if isinstance(perfil, dict):
+        nombre = perfil.get("nombre", "")
+        nivel = perfil.get("nivel_detalle", "normal")
+        intereses = perfil.get("intereses", "")
     else:
-        s = s.replace(",", ".")                            # coma decimal (escritura en español)
-    try:
-        d = Decimal(s).normalize()
-    except InvalidOperation:
-        return None
-    return format(d, "f")
+        nombre = getattr(perfil, "nombre", "")
+        nivel = getattr(perfil, "nivel_detalle", "normal")
+        intereses = getattr(perfil, "intereses", "")
 
+    # Sanear: sin saltos de línea ni corchetes
+    def _limpiar(v) -> str:
+        return re.sub(r"[\[\]\n\r]", " ", str(v or "")).strip()
 
-def _numeros(texto: str) -> set[str]:
-    """Números de un texto, ignorando [E:id], referencias de contexto y numeración de listas."""
-    limpio = _RE_CITA.sub(" ", texto)
-    limpio = re.sub(r"(?m)^\s*\d+[.)]\s+", " ", limpio)    # '1. ' al inicio de línea
-    return {c for c in (_canon(m) for m in _RE_NUM.findall(limpio)) if c is not None}
+    nombre = _limpiar(nombre)
+    nivel = _limpiar(nivel).lower()
+    intereses = _limpiar(intereses)
 
-
-def _numeros_permitidos(evidencias: Sequence[Evidencia], contexto: Sequence[Contexto],
-                        pregunta: str) -> set[str]:
-    texto = [pregunta]
-    for e in evidencias:
-        texto += [e.descripcion, _valor(e), str(e.n)]
-        for extra in (getattr(e, "parametros", None), getattr(e, "contexto", None)):
-            if isinstance(extra, dict):
-                texto += [str(v) for v in extra.values()]
-        v = float(e.valor)
-        texto += [repr(v), f"{v:.4f}", f"{v:.2f}", f"{v * 100:.1f}", f"{v * 100:.2f}"]
-        if e.unidad in ("proporcion", "porcentaje", "cambio_relativo"):
-            texto.append(f"{abs(v) * 100:.1f}")   # el LLM puede omitir el signo
-    texto += [c.texto for c in contexto]
-    return _numeros(" ".join(texto))
-
-
-def cifras_sin_respaldo(texto: str, evidencias: Sequence[Evidencia], contexto: Sequence[Contexto] = (),
-                        pregunta: str = "") -> list[str]:
-    """Cifras del texto que no aparecen en ninguna evidencia, en el contexto ni en la pregunta.
-
-    Mejoras sobre la versión de la guía: acepta coma decimal (10,4), separador de miles (35,200),
-    no se confunde con '[E:…]' ni con listas numeradas, y reconoce el valor crudo y en porcentaje."""
-    permitidas = _numeros_permitidos(evidencias, contexto, pregunta)
-    return sorted(_numeros(texto) - permitidas, key=lambda s: (len(s), s))
-
-
-def cifras_sin_cita(texto: str) -> list[str]:
-    """Frases que contienen una cifra pero ningún [E:id]. La regla 2 pide citar cada cifra."""
-    frases = re.split(r"(?<=[.!?])\s+|\n+", texto)
-    return [f.strip() for f in frases if _numeros(f) and not _RE_CITA.search(f)]
-
-
-# ---------------------------------------------------------------- respaldo sin LLM
-def plantilla_respaldo(evidencias: Sequence[Evidencia], contexto: Sequence[Contexto] = (),
-                       advertencias: Iterable[str] = (), max_evidencias: int = 6) -> str:
-    """Texto determinístico: sólo repite lo que dicen las evidencias. Nunca inventa nada."""
-    lineas = []
-    if evidencias:
-        lineas.append("Esto es lo que muestran los datos:")
-        lineas += [f"- {e.descripcion}: {_valor(e)} (n={e.n}) [E:{e.id}]" for e in evidencias[:max_evidencias]]
-    elif contexto:
-        lineas.append("No tengo cifras para esa pregunta, pero en la documentación encontré:")
-        lineas += [f"- {c.texto[:300]} (fuente: {c.fuente})" for c in contexto[:2]]
+    if nivel == "breve":
+        tono = "Responde de forma muy concisa, máximo 3 frases."
+    elif nivel == "detallado":
+        tono = "Puedes dar más contexto y detalles técnicos si ayudan a entender."
     else:
-        lineas.append("No tengo datos ni documentación para responder eso. "
-                      "Puedes preguntarme por tendencias, rankings, comparaciones entre grupos o factores asociados.")
-    lineas += [f"Aviso: {a}" for a in advertencias]
-    return "\n".join(lineas)
+        tono = "Mantén un tono claro y sin excesivos tecnicismos."
+
+    partes = [f"PERSONA: {nombre}" if nombre else "PERSONA: (no especificada)", tono]
+    if intereses:
+        partes.append(f"Intereses del usuario: {intereses}")
+    return "\n".join(partes)
+
+
+def citas_invalidas(texto: str, ids_validos: set[str], fuentes_validas: set[str] | None = None) -> list[str]:
+    """Citas del LLM que NO existen: ids de evidencia [E:..] o fuentes de contexto [C:..] inventados."""
+    malas = {c for c in re.findall(r"\[E:([^\]]+)\]", texto) if c not in ids_validos}
+    if fuentes_validas is not None:
+        malas |= {f"C:{c}" for c in re.findall(r"\[C:([^\]]+)\]", texto) if c not in fuentes_validas}
+    return sorted(malas)

@@ -69,8 +69,6 @@ def texto_plano(texto: str) -> str:
 
 # ---------------------------------------------------------------- sinónimos
 # Grupos de términos equivalentes. Sólo se usan para AMPLIAR LA PREGUNTA, nunca los documentos.
-# Son un punto de partida para Capital Humano: se pueden reemplazar o ampliar con un JSON
-# (docs/conocimiento/sinonimos.json) sin tocar código, y así el RAC se adapta a otro dominio.
 GRUPOS_SINONIMOS_RRHH: list[list[str]] = [
     ["rotación", "bajas", "renuncias", "salidas", "attrition", "turnover"],
     ["ausentismo", "faltas", "inasistencias", "ausencias"],
@@ -90,6 +88,18 @@ GRUPOS_SINONIMOS_RRHH: list[list[str]] = [
     ["participación de utilidades", "ptu", "reparto de utilidades"],
 ]
 
+# Grupos generales: cómo la gente pregunta por el contenido de un documento.
+GRUPOS_SINONIMOS_GENERALES: list[list[str]] = [
+    ["recomendaciones", "recomienda", "recomiendan", "recomendar", "sugiere", "sugerencias", "propone",
+     "propuestas", "consejos"],
+    ["conclusiones", "concluye", "cierre"],
+    ["resumen", "resume", "resumir", "síntesis", "panorama"],
+    ["metodología", "método", "cómo se calculó", "fórmula"],
+    ["hallazgos", "resultados"],
+    ["riesgos", "alertas", "problemas", "preocupaciones"],
+    ["objetivo", "propósito", "finalidad"],
+]
+
 
 class Sinonimos:
     """Expande una lista de tokens con los de sus términos equivalentes."""
@@ -103,15 +113,24 @@ class Sinonimos:
                 self._grupos.append(entradas)
 
     @classmethod
-    def desde_json(cls, ruta: str | Path) -> "Sinonimos":
-        """JSON: lista de listas, p. ej. [["rotación","bajas"],["salario","sueldo"]]."""
-        return cls(json.loads(Path(ruta).read_text(encoding="utf-8")))
+    def desde_json(cls, ruta: str | Path, *, con_generales: bool = True) -> "Sinonimos":
+        """JSON: lista de listas, p. ej. [["rotación","bajas"],["salario","sueldo"]].
+        Por defecto se suman los grupos generales."""
+        return cls.desde_jsons([ruta], con_generales=con_generales)
+
+    @classmethod
+    def desde_jsons(cls, rutas, *, con_generales: bool = True) -> "Sinonimos":
+        """Une varios JSON (uno por fuente de conocimiento)."""
+        grupos: list[list[str]] = list(GRUPOS_SINONIMOS_GENERALES) if con_generales else []
+        for ruta in rutas:
+            grupos += json.loads(Path(ruta).read_text(encoding="utf-8"))
+        return cls(grupos)
 
     def expandir(self, tokens: list[str]) -> list[str]:
         presentes = set(tokens)
         extra: list[str] = []
         for grupo in self._grupos:
-            if any(set(e) <= presentes for e in grupo):  # algún término del grupo está en la pregunta
+            if any(set(e) <= presentes for e in grupo):
                 for entrada in grupo:
                     for tok in entrada:
                         if tok not in presentes and tok not in extra:

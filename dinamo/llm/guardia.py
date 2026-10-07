@@ -1,82 +1,161 @@
-"""Guardia del LLM: genera, valida, reintenta una vez con correcciones y, si no queda bien, usa la plantilla.
+"""Guardia del LLM: genera, valida y reintenta; devuelve siempre texto seguro.
 
-Samuel la llama desde Brain.responder en lugar de llamar al LLM directamente:
+Flujo:
+  1. Llama al LLM.
+  2. Valida: ¿hay citas inventadas? ¿números sin respaldo?
+  3. Si falla, reintenta UNA vez con retroalimentación.
+  4. Si vuelve a fallar, usa la plantilla determinista.
 
-    r = responder_con_guardia(self.llm, pregunta, evidencias, contexto, advertencias=plan_avisos)
-    respuesta = Respuesta(texto=r.texto, ..., advertencias=r.advertencias)
-
-Garantías:
-  * Con LLM apagado, lento o con una respuesta rara, el usuario SIEMPRE recibe un texto válido.
-  * Ninguna cifra sin respaldo ni cita inventada llega al usuario (reglas 1, 6 y 7).
-  * Funciona con cualquier objeto que tenga generar(sistema, usuario): LLMOllama, LLMFalso, etc.
-  * Si no hay evidencias ni contexto, NI SIQUIERA llama al LLM: no hay con qué responder.
+Nunca expone texto no validado al usuario.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, Sequence
+import re
+from dataclasses import dataclass, field
 
 from dinamo.core.contracts import Contexto, Evidencia
-
-from .prompts import (SISTEMA, citas_invalidas, cifras_sin_cita, cifras_sin_respaldo,
-                      construir_prompt_usuario, plantilla_respaldo)
-
-try:  # algunos modelos (qwen, deepseek) escriben <think>…</think> antes de responder
-    from .ollama_http import limpiar_respuesta
-except Exception:  # pragma: no cover
-    def limpiar_respuesta(t: str) -> str:
-        return t.strip()
+from dinamo.llm.prompts import (
+    SISTEMA,
+    citas_invalidas,
+    construir_mensajes,
+    formatear_valor,
+)
 
 
 @dataclass(frozen=True)
 class ResultadoGuardia:
     texto: str
-    advertencias: tuple[str, ...] = ()
-    intentos: int = 0            # llamadas al LLM realizadas
-    uso_plantilla: bool = False  # True si el texto es el de respaldo, no el del LLM
+    advertencias: tuple[str, ...]
+    intentos: int
+    uso_plantilla: bool
 
 
-def revisar(texto: str, evidencias: Sequence[Evidencia], contexto: Sequence[Contexto] = (),
-            pregunta: str = "", exigir_citas: bool = True) -> list[str]:
-    """Problemas encontrados en el texto del LLM (lista vacía = texto aceptable)."""
-    if not texto.strip():
-        return ["La respuesta llegó vacía."]
-    problemas = []
-    if (ids := citas_invalidas(texto, evidencias)):
-        problemas.append(f"Citaste ids de evidencia que no existen: {', '.join(ids)}. Usa sólo los ids dados.")
-    if (nums := cifras_sin_respaldo(texto, evidencias, contexto, pregunta)):
-        problemas.append(f"Escribiste cifras que no están en las evidencias: {', '.join(nums)}. "
-                         "Usa sólo cifras de las evidencias, sin calcular ni redondear.")
-    if exigir_citas and evidencias and (frases := cifras_sin_cita(texto)):
-        problemas.append(f"Estas frases tienen cifras sin cita [E:id]: «{frases[0][:80]}»")
+def _plantilla(evidencias: list[Evidencia], contexto: list[Contexto],
+               advertencias: list[str]) -> str:
+    """Respuesta determinista cuando el LLM no pasa la validación."""
+    partes: list[str] = []
+    if evidencias:
+        partes.append("Resultados disponibles:")
+        for e in evidencias:
+            partes.append(f"- {e.descripcion}: {formatear_valor(e)} [E:{e.id}]")
+    if contexto:
+        partes.append("Contexto relevante:")
+        for c in contexto[:3]:
+            partes.append(f"- [{c.fuente}] {c.texto[:200]}")
+    if advertencias:
+        partes.append("Nota: " + "; ".join(advertencias))
+    return "\n".join(partes) if partes else "No hay evidencia suficiente para responder."
+
+
+def _numeros_en_texto(texto: str) -> list[str]:
+    """Extrae números (incluye decimales con coma o punto y porcentajes)."""
+    return re.findall(r"\b\d[\d.,]*%?\b", texto)
+
+
+def revisar(texto: str, evidencias: list[Evidencia], contexto: list[Contexto],
+            pregunta: str = "") -> list[str]:
+    """Devuelve lista de problemas encontrados (vacía = texto OK)."""
+    problemas: list[str] = []
+
+    # 1. Citas de evidencias inventadas
+    ids_validos = {e.id for e in evidencias}
+    fuentes_validas = {c.fuente for c in contexto}
+    inventadas = citas_invalidas(texto, ids_validos, fuentes_validas)
+    if inventadas:
+        problemas.append(f"Citas inventadas: {inventadas}")
+
+    # 2. Números en el texto que no aparecen en ninguna evidencia ni contexto
+    if evidencias:
+        valores_en_evidencia: set[str] = set()
+        for e in evidencias:
+            v = formatear_valor(e)
+            valores_en_evidencia.update(re.findall(r"\d[\d.,]*%?", v))
+        for ctx in contexto:
+            valores_en_evidencia.update(re.findall(r"\d[\d.,]*%?", ctx.texto))
+
+        numeros_respuesta = _numeros_en_texto(texto)
+        sin_respaldo = [n for n in numeros_respuesta
+                        if not any(n.replace(",", ".") in v.replace(",", ".") or v.replace(",", ".") in n.replace(",", ".")
+                                   for v in valores_en_evidencia)]
+        if sin_respaldo:
+            problemas.append(f"Números sin respaldo en evidencia: {sin_respaldo[:5]}")
+
     return problemas
 
 
-def responder_con_guardia(llm, pregunta: str, evidencias: Sequence[Evidencia],
-                          contexto: Sequence[Contexto] = (), advertencias: Iterable[str] = (),
-                          *, max_intentos: int = 2, sistema: str = SISTEMA,
-                          exigir_citas: bool = True) -> ResultadoGuardia:
-    avisos = list(advertencias)
+def responder_con_guardia(
+    llm,
+    pregunta: str,
+    evidencias: list[Evidencia],
+    contexto: list[Contexto],
+    advertencias: list[str] | None = None,
+    max_intentos: int = 2,
+    sistema: str | None = None,
+    exigir_citas: bool = True,
+    perfil: dict | None = None,
+) -> ResultadoGuardia:
+    """Genera una respuesta validada.
 
-    if not evidencias and not contexto:                      # nada que explicar -> no hay riesgo que correr
-        return ResultadoGuardia(plantilla_respaldo((), ()), tuple(avisos), 0, True)
+    Args:
+        llm: cualquier objeto con .generar(sistema, usuario) -> str
+        pregunta: texto de la pregunta del usuario
+        evidencias: lista de Evidencia calculadas por las Skills
+        contexto: fragmentos del RAC
+        advertencias: advertencias ya conocidas antes de llamar al LLM
+        max_intentos: máximo de llamadas al LLM (1 = sin reintento)
+        sistema: override del prompt de sistema (None = usa SISTEMA de prompts.py)
+        exigir_citas: si True, falla cuando hay números sin cita
+        perfil: dict con nombre/cargo/nivel_detalle del usuario (para instruccion_perfil)
+    """
+    advertencias = list(advertencias or [])
+    sistema_llm = sistema or SISTEMA
+
+    # Sin material, devuelve plantilla directamente
+    if not evidencias and not contexto:
+        return ResultadoGuardia(
+            texto=_plantilla(evidencias, contexto, advertencias),
+            advertencias=tuple(advertencias),
+            intentos=0,
+            uso_plantilla=True,
+        )
+
+    # Añade instrucción de perfil al sistema si hay perfil
+    if perfil:
+        try:
+            from dinamo.llm.prompts import instruccion_perfil as _ip
+            sistema_llm = sistema_llm + "\n" + _ip(perfil)
+        except (ImportError, AttributeError):
+            pass
 
     correcciones: list[str] = []
-    intento = 0
     for intento in range(1, max_intentos + 1):
-        usuario = construir_prompt_usuario(pregunta, evidencias, contexto, avisos, correcciones)
-        try:
-            texto = limpiar_respuesta(str(llm.generar(sistema, usuario)))
-        except Exception as e:                               # Ollama apagado, tiempo agotado, modelo ausente…
-            avisos.append(f"El modelo de lenguaje no está disponible ({type(e).__name__}); "
-                          "se muestra una respuesta basada sólo en las evidencias.")
-            break
-        correcciones = revisar(texto, evidencias, contexto, pregunta, exigir_citas)
-        if not correcciones:
-            return ResultadoGuardia(texto, tuple(avisos), intento, False)
-    else:
-        avisos.append("La redacción del modelo no pasó la validación de cifras y citas; "
-                      "se muestra una respuesta basada sólo en las evidencias.")
+        _, mensaje_usuario = construir_mensajes(
+            pregunta, contexto, evidencias, advertencias,
+        )
+        if correcciones:
+            mensaje_usuario += "\n\nCORRECCIONES NECESARIAS:\n" + "\n".join(f"- {c}" for c in correcciones)
 
-    # Las advertencias viajan aparte (la interfaz las muestra con st.warning): no se repiten en el texto.
-    return ResultadoGuardia(plantilla_respaldo(evidencias, contexto), tuple(avisos), intento, True)
+        try:
+            texto = llm.generar(sistema_llm, mensaje_usuario)
+        except Exception as exc:
+            advertencias.append(f"LLM no disponible: {exc}")
+            break
+
+        problemas = revisar(texto, evidencias, contexto, pregunta) if exigir_citas else []
+        if not problemas:
+            return ResultadoGuardia(
+                texto=texto,
+                advertencias=tuple(advertencias),
+                intentos=intento,
+                uso_plantilla=False,
+            )
+        correcciones = problemas
+
+    # Agota intentos -> plantilla
+    advertencias.append(f"El LLM no pasó la validación tras {max_intentos} intento(s); se usa plantilla.")
+    return ResultadoGuardia(
+        texto=_plantilla(evidencias, contexto, advertencias),
+        advertencias=tuple(advertencias),
+        intentos=max_intentos,
+        uso_plantilla=True,
+    )

@@ -4,9 +4,7 @@ Un fragmento es una tupla (fuente, texto). `fuente` es lo que se cita ("glosario
 "diccionario:salario_diario_inicial", "leeme:Faltantes"). Nada aquí es específico de un tema:
 cualquier carpeta de .md/.txt/.csv y cualquier Excel con un diccionario de datos funciona.
 
-Principio de diseño: el RAC aporta DEFINICIONES Y METODOLOGÍA, nunca cifras del análisis. Por eso
-no se indexan hojas de resultados (correlaciones, resúmenes por periodo): esos números sólo pueden
-llegar al usuario a través de una Evidencia.
+Principio de diseño: el RAC aporta DEFINICIONES Y METODOLOGÍA, nunca cifras del análisis.
 """
 from __future__ import annotations
 
@@ -19,8 +17,8 @@ from .texto import quitar_acentos
 
 Fragmento = tuple[str, str]
 
-MAX_CHARS = 900          # tamaño máximo de un fragmento (cabe 3 veces en el prompt de un modelo de 3B)
-MAX_OPCIONES = 25        # opciones de una pregunta de encuesta que se listan en su fragmento
+MAX_CHARS = 900
+MAX_OPCIONES = 25
 MAX_FILAS_CSV = 2000
 
 _RE_TITULO = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.MULTILINE)
@@ -55,6 +53,84 @@ def _trocear(texto: str, max_chars: int = MAX_CHARS) -> list[str]:
     return partes
 
 
+# ------------------------------------------------------------------ PDF
+MIN_CHARS_FRAGMENTO = 20
+
+
+def fragmentos_paginas(archivo: str, paginas: list[str]) -> list[Fragmento]:
+    """Páginas de un documento -> fragmentos con fuente `archivo#pN` (N empieza en 1).
+    Es lo que el LLM cita como [C:archivo#pN]."""
+    salida: list[Fragmento] = []
+    for n, texto in enumerate(paginas, start=1):
+        for parte in _trocear(texto or ""):
+            if len(parte) >= MIN_CHARS_FRAGMENTO:
+                salida.append((f"{archivo}#p{n}", parte))
+    return salida
+
+
+def leer_paginas_pdf(ruta: Path) -> list[str]:
+    """Texto de cada página. Usa pypdf o pdfplumber si alguno está instalado; si no, devuelve []."""
+    try:
+        from pypdf import PdfReader
+        return [(p.extract_text() or "") for p in PdfReader(str(ruta)).pages]
+    except ImportError:
+        pass
+    try:
+        import pdfplumber
+        with pdfplumber.open(str(ruta)) as pdf:
+            return [(p.extract_text() or "") for p in pdf.pages]
+    except ImportError:
+        return []
+
+
+def cargar_pdf(ruta: Path, nombre: str | None = None) -> list[Fragmento]:
+    """Los párrafos del PDF se consultan como texto (las tablas las analiza Ingesta)."""
+    return fragmentos_paginas(nombre or ruta.name, leer_paginas_pdf(ruta))
+
+
+def _titulo_seguro(titulo: str) -> str:
+    return _limpiar(re.sub(r"[\[\]]", " ", titulo))
+
+
+def cargar_docx(ruta: Path, nombre: str | None = None) -> list[Fragmento]:
+    """Word: un fragmento por sección (título + párrafos). Fuente: `archivo.docx#Título`."""
+    try:
+        from dinamo.ingesta.word import leer_word
+    except ImportError:
+        return []
+    nombre = nombre or ruta.name
+    salida: list[Fragmento] = []
+    for sec in leer_word(ruta).secciones:
+        titulo = _titulo_seguro(sec.titulo)
+        for j, parte in enumerate(_trocear(sec.texto)):
+            if len(parte) < MIN_CHARS_FRAGMENTO:
+                continue
+            sufijo = f" (parte {j + 1})" if j else ""
+            if titulo:
+                salida.append((f"{nombre}#{titulo}{sufijo}", f"{titulo}. {parte}"))
+            else:
+                salida.append((nombre, parte))
+    return salida
+
+
+def cargar_archivo(ruta: str | Path, nombre: str | None = None) -> list[Fragmento]:
+    """Un solo archivo -> fragmentos. Es lo que usa el RAC cuando el usuario sube un documento."""
+    ruta = Path(ruta)
+    nombre = nombre or ruta.name
+    sufijo = ruta.suffix.lower()
+    if sufijo == ".md":
+        return dividir_markdown(ruta.read_text(encoding="utf-8"), nombre)
+    if sufijo == ".txt":
+        return [(nombre, p) for p in _trocear(ruta.read_text(encoding="utf-8"))]
+    if sufijo == ".csv":
+        return cargar_csv(ruta)
+    if sufijo == ".pdf":
+        return cargar_pdf(ruta, nombre)
+    if sufijo == ".docx":
+        return cargar_docx(ruta, nombre)
+    return []
+
+
 # ------------------------------------------------------------------ carpeta
 def dividir_markdown(texto: str, archivo: str) -> list[Fragmento]:
     """Un fragmento por título (#, ## o ###). El título viaja dentro del texto y de la fuente."""
@@ -65,7 +141,7 @@ def dividir_markdown(texto: str, archivo: str) -> list[Fragmento]:
     for i, m in enumerate(marcas):
         fin = marcas[i + 1].start() if i + 1 < len(marcas) else len(texto)
         titulo, cuerpo = m.group(2).strip(), texto[m.end():fin].strip()
-        if not cuerpo or len(m.group(1)) == 1:   # el título (#) del archivo + su introducción no es un concepto
+        if not cuerpo or len(m.group(1)) == 1:
             continue
         for j, parte in enumerate(_trocear(cuerpo)):
             sufijo = f" (parte {j + 1})" if j else ""
@@ -74,7 +150,7 @@ def dividir_markdown(texto: str, archivo: str) -> list[Fragmento]:
 
 
 def cargar_csv(ruta: Path) -> list[Fragmento]:
-    """Cada fila de un CSV pequeño se vuelve 'col: valor; col: valor' (útil para glosarios en tabla)."""
+    """Cada fila de un CSV pequeño -> 'col: valor; col: valor' (útil para glosarios en tabla)."""
     salida: list[Fragmento] = []
     with ruta.open(encoding="utf-8-sig", newline="") as f:
         for i, fila in enumerate(csv.DictReader(f)):
@@ -87,7 +163,7 @@ def cargar_csv(ruta: Path) -> list[Fragmento]:
 
 
 def cargar_carpeta(carpeta: str | Path) -> list[Fragmento]:
-    """Lee recursivamente .md, .txt y .csv. Archivos nuevos entran solos: no hay que registrarlos."""
+    """Lee recursivamente .md, .txt, .csv, .pdf y .docx."""
     carpeta = Path(carpeta)
     if not carpeta.exists():
         return []
@@ -95,17 +171,11 @@ def cargar_carpeta(carpeta: str | Path) -> list[Fragmento]:
     for ruta in sorted(carpeta.rglob("*")):
         if not ruta.is_file():
             continue
-        sufijo = ruta.suffix.lower()
         rel = ruta.relative_to(carpeta).as_posix()
         try:
-            if sufijo == ".md":
-                salida += dividir_markdown(ruta.read_text(encoding="utf-8"), rel)
-            elif sufijo == ".txt":
-                salida += [(rel, p) for p in _trocear(ruta.read_text(encoding="utf-8"))]
-            elif sufijo == ".csv":
-                salida += cargar_csv(ruta)
-        except (UnicodeDecodeError, csv.Error):
-            continue  # un archivo corrupto no debe tumbar el arranque
+            salida += cargar_archivo(ruta, rel)
+        except Exception:
+            continue
     return salida
 
 
@@ -120,7 +190,6 @@ _COLS_TEMA = ("tema", "area")
 
 
 def _col(df, candidatas: tuple[str, ...]):
-    """Primera columna cuyo nombre (sin acentos, minúsculas) coincide con alguna candidata."""
     mapa = {quitar_acentos(str(c)).lower().strip(): c for c in df.columns}
     for cand in candidatas:
         if cand in mapa:
@@ -133,7 +202,6 @@ def _es_valor(v) -> bool:
 
 
 def fragmentos_leeme(df, hoja: str) -> list[Fragmento]:
-    """Hoja de 2 columnas (sección, descripción) -> un fragmento por fila."""
     if df.shape[1] < 2:
         return []
     salida = []
@@ -146,12 +214,7 @@ def fragmentos_leeme(df, hoja: str) -> list[Fragmento]:
 
 
 def fragmentos_diccionario(df) -> list[Fragmento]:
-    """Diccionario de datos genérico (variable, pregunta, opción, justificación...).
-
-    - Variables con justificación: un fragmento por variable (suelen ser las importantes).
-    - El resto: se AGRUPAN por pregunta, porque una pregunta de encuesta con 30 opciones genera
-      30 filas casi idénticas que, indexadas por separado, taparían a todo lo demás.
-    """
+    """Diccionario de datos genérico (variable, pregunta, opción, justificación...)."""
     c_var, c_preg = _col(df, _COLS_VARIABLE), _col(df, _COLS_PREGUNTA)
     c_opc, c_just = _col(df, _COLS_OPCION), _col(df, _COLS_JUSTIFICACION)
     c_rol, c_tema = _col(df, _COLS_ROL), _col(df, _COLS_TEMA)
@@ -170,7 +233,8 @@ def fragmentos_diccionario(df) -> list[Fragmento]:
             meta = [str(fila[c]) for c in (c_tema, c_rol) if c is not None and _es_valor(fila[c])]
             cabecera = f"{var} ({'; '.join(meta)})" if meta else var
             extra = "" if derivada or not pregunta else f" Pregunta original: {_recortar(pregunta, 300)}"
-            salida.append((f"diccionario:{var}", _recortar(f"{cabecera}. {_limpiar(fila[c_just]).rstrip('.')}.{extra}")))
+            salida.append((f"diccionario:{var}",
+                           _recortar(f"{cabecera}. {_limpiar(fila[c_just]).rstrip('.')}.{extra}")))
         elif pregunta and not derivada:
             g = grupos.setdefault(pregunta, {"vars": [], "opciones": []})
             g["vars"].append(var)
@@ -189,11 +253,9 @@ def fragmentos_diccionario(df) -> list[Fragmento]:
 
 
 def cargar_excel_conocimiento(ruta: str | Path) -> list[Fragmento]:
-    """Detecta solo qué hojas son documentación (LEEME/metodología o diccionario de datos).
-
-    No necesita saber nombres de hojas ni de columnas exactos: funciona con otro Excel
-    que siga la misma idea. Las hojas de datos y de resultados se ignoran a propósito."""
-    import pandas as pd  # import tardío: el RAC sin Excel no lo necesita
+    """Detecta qué hojas son documentación (LEEME/metodología o diccionario de datos).
+    Las hojas de datos y de resultados se ignoran a propósito."""
+    import pandas as pd
 
     ruta = Path(ruta)
     if not ruta.exists():
@@ -211,7 +273,7 @@ def cargar_excel_conocimiento(ruta: str | Path) -> list[Fragmento]:
                 if _col(df, _COLS_VARIABLE) is None or df.shape[1] < 3:
                     continue
                 nuevos = fragmentos_diccionario(df)
-            for frag in nuevos:  # evita duplicados entre hojas (p. ej. VARIABLES_SELECCIONADAS vs DICCIONARIO)
+            for frag in nuevos:
                 if frag[0] not in vistos:
                     vistos.add(frag[0])
                     salida.append(frag)

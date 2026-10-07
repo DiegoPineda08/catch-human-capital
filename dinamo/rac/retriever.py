@@ -1,196 +1,231 @@
-"""RAC v1: recuperación de contexto con TF-IDF (palabras + caracteres) y modo híbrido opcional.
+"""
+RAC — Retriever v2 (TF-IDF + sinónimos, soporte multi-fuente y hot-add).
 
-Contrato (no cambia): buscar(pregunta, k) -> list[Contexto]
-
-Mejoras sobre la guía, todas dentro del contrato:
-  1. Dos índices TF-IDF fusionados: palabras normalizadas (1-2 gramas) y n-gramas de caracteres.
-     El segundo tolera erratas y variantes ("puntualdad", "puntual" ~ "puntualidad").
-  2. Conserva los dígitos sueltos: "Tier 1" y "Tier 2" ya no se confunden.
-  3. Ampliación de la pregunta con sinónimos configurables (sólo en la pregunta, nunca en los documentos).
-  4. Umbral de relevancia: si nada se parece lo suficiente, devuelve [] (el Brain/LLM sabe que no hay
-     contexto y no inventa). Es la base para decir "no tengo información sobre eso".
-  5. RetrieverHibrido: suma búsqueda semántica con embeddings de Ollama (fusión RRF). Si Ollama falla,
-     cae solo al TF-IDF.
-  6. Desempate fijo por posición -> mismos resultados siempre.
+Mantiene el mismo contrato de v0: buscar(texto, k) -> list[Contexto].
+Se reemplaza el conteo simple de palabras por TF-IDF con n-gramas de caracteres para mayor
+robustez ante errores de escritura, plurales y variantes morfológicas.
 """
 from __future__ import annotations
 
-import hashlib
-import os
+import math
+from collections import Counter
 from pathlib import Path
-from typing import Sequence
 
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
+from dinamo.core.contracts import Contexto, PerfilDataset
 
-from dinamo.core.contracts import Contexto
+from .fragmentos import cargar_archivo, construir_fragmentos
+from .texto import Sinonimos, normalizar, texto_plano
 
-from .fragmentos import Fragmento, construir_fragmentos
-from .texto import GRUPOS_SINONIMOS_RRHH, Sinonimos, normalizar, texto_plano
-
-try:  # la ruta del Excel vive en Config; en tests sin Config se ignora
-    from dinamo.core.config import Config
-except Exception:  # pragma: no cover
-    Config = None  # type: ignore
+DESCRIPCION_ROL = {
+    "entidad": "identifica cada", "tiempo": "marca el periodo", "metrica": "es un indicador numérico",
+    "dimension": "es una categoría para agrupar", "binaria": "vale 1 (sí) o 0 (no)",
+    "validez": "indica si la fila es dato real (1) o imputado (0)",
+}
 
 
-def _legible(fuente: str) -> str:
-    """'diccionario:tasa_rotacion_bimestral' -> 'diccionario tasa rotacion bimestral' (también se indexa)."""
-    return " ".join(normalizar(fuente.replace(".md", ""), quitar_stop=False))
+# ------------------------------------------------------------------ helpers de indexado
+def _tokens_palabra(texto: str) -> list[str]:
+    return normalizar(texto)
 
 
+def _tokens_char(texto: str, n: int = 3) -> list[str]:
+    plano = texto_plano(texto).replace(" ", "_")
+    return [plano[i:i + n] for i in range(len(plano) - n + 1)] if len(plano) >= n else []
+
+
+def _tfidf(corpus: list[list[str]]) -> tuple[dict[str, float], list[dict[str, float]]]:
+    """IDF global + TF normalizado por documento. Devuelve (idf, [tf_por_doc])."""
+    N = len(corpus)
+    df: Counter[str] = Counter()
+    for doc in corpus:
+        df.update(set(doc))
+    idf = {t: math.log((N + 1) / (n + 1)) + 1 for t, n in df.items()}
+    tfs = []
+    for doc in corpus:
+        c = Counter(doc)
+        total = sum(c.values()) or 1
+        tfs.append({t: v / total for t, v in c.items()})
+    return idf, tfs
+
+
+def _score(q_tokens: list[str], tf: dict[str, float], idf: dict[str, float]) -> float:
+    return sum(tf.get(t, 0.0) * idf.get(t, 0.0) for t in q_tokens)
+
+
+# ------------------------------------------------------------------ fragmentos de perfil (compatibilidad v0)
+def fragmentos_de_carpeta(carpeta: Path) -> list[tuple[str, str, str]]:
+    from dinamo.ingesta import fragmentar_markdown
+    salida = []
+    for ruta in sorted(carpeta.glob("*.md")) if carpeta.exists() else []:
+        salida += [(f.fuente, f.texto, "conocimiento")
+                   for f in fragmentar_markdown(ruta.read_text(encoding="utf-8"), ruta.name)]
+    return salida
+
+
+def fragmentos_del_perfil(perfil: PerfilDataset, origen: str = "") -> list[tuple[str, str, str]]:
+    de_donde = f" Origen: {origen}." if origen else ""
+    general = (f"Base '{perfil.nombre}': {perfil.descripcion} Cada fila es un(a) {perfil.entidad_singular} "
+               f"en un periodo.{de_donde}" if perfil.tiene("tiempo")
+               else f"Base '{perfil.nombre}': {perfil.descripcion}{de_donde}")
+    frag = [(f"perfil#{perfil.nombre}", general, "perfil")]
+    for c in perfil.columnas:
+        if c.rol in ("ignorar", "texto", "nombre_entidad", "etiqueta_tiempo"):
+            continue
+        rol = DESCRIPCION_ROL.get(c.rol, c.rol)
+        if c.rol == "entidad":
+            rol += f" {perfil.entidad_singular}"
+        partes = [f"Columna '{c.nombre}' ({c.nombre_visible}) de la base '{perfil.nombre}' {rol}."]
+        if c.descripcion:
+            partes.append(c.descripcion)
+        if c.rol == "metrica":
+            partes.append(f"Unidad: {c.unidad}. Se resume con la {c.agregacion}.")
+            if c.mayor_es_mejor is not None:
+                partes.append("Un valor más alto es mejor." if c.mayor_es_mejor else "Un valor más bajo es mejor.")
+        if c.valores:
+            partes.append("Valores: " + ", ".join(c.valores[:12]) + ".")
+        if c.sinonimos:
+            partes.append("También se le llama: " + ", ".join(c.sinonimos) + ".")
+        frag.append((f"perfil#{perfil.nombre}.{c.nombre}", " ".join(partes), "perfil"))
+    return frag
+
+
+# ------------------------------------------------------------------ RetrieverTfidf
 class RetrieverTfidf:
-    def __init__(self, fragmentos: Sequence[Fragmento], *, sinonimos: Sinonimos | None = None,
-                 peso_palabras: float = 0.6, min_score: float = 0.20, relativo: float = 0.35):
+    """TF-IDF con n-gramas de palabras (1-2) y de caracteres (3-5), fusionados por suma."""
+
+    MIN_SCORE = 0.01
+
+    def __init__(self, fragmentos=(), carpeta_conocimiento: str | Path | None = None,
+                 sinonimos: Sinonimos | None = None):
+        self.carpeta = Path(carpeta_conocimiento) if carpeta_conocimiento else None
+        self._sinonimos = sinonimos
+        fijos = [f if len(f) == 3 else (f[0], f[1], "perfil" if f[0].startswith("perfil#") else "conocimiento")
+                 for f in fragmentos]
+        if self.carpeta:
+            fijos += fragmentos_de_carpeta(self.carpeta / "general")
+        self._fijos = fijos
+        self._indexar(fijos)
+
+    def _indexar(self, fragmentos: list[tuple[str, str, str]]) -> None:
+        self._fragmentos = fragmentos
+        textos = [t for _, t, _ in fragmentos]
+        corpus_pal = [_tokens_palabra(t) for t in textos]
+        corpus_chr = [_tokens_char(t) for t in textos]
+        self._idf_pal, self._tf_pal = _tfidf(corpus_pal)
+        self._idf_chr, self._tf_chr = _tfidf(corpus_chr)
+
+    def sincronizar(self, biblioteca) -> None:
+        """Vuelve a indexar cuando cambian las fuentes cargadas."""
+        dinamicos = []
+        for nombre, motor in biblioteca.motores.items():
+            if self.carpeta:
+                dinamicos += fragmentos_de_carpeta(self.carpeta / nombre)
+            dinamicos += fragmentos_del_perfil(motor.perfil, getattr(motor, "origen", ""))
+        dinamicos += [(f.fuente, f.texto, "documento") for f in biblioteca.fragmentos]
+        self._indexar(self._fijos + dinamicos)
+
+    def __len__(self) -> int:
+        return len(self._fragmentos)
+
+    def agregar_archivo(self, ruta: str | Path) -> None:
+        """Indexa un documento en caliente sin reiniciar."""
+        nuevos = [(f, t, "documento") for f, t in cargar_archivo(ruta)]
+        self._indexar(self._fragmentos + nuevos)
+
+    def documentos(self) -> list[str]:
+        vistos = []
+        for f, _, tipo in self._fragmentos:
+            nombre = f.split("#")[0]
+            if tipo == "documento" and nombre not in vistos:
+                vistos.append(nombre)
+        return vistos
+
+    def documentos_mencionados(self, pregunta: str) -> list[str]:
+        """Nombres de documentos que la pregunta menciona."""
+        t = texto_plano(pregunta)
+        docs = self.documentos()
+        encontrados = []
+        for doc in docs:
+            claves = [p for p in _tokens_palabra(Path(doc).stem.replace("_", " ")) if len(p) > 3]
+            if claves and sum(1 for p in claves if p in t) >= max(1, len(claves) // 2):
+                encontrados.append(doc)
+        return encontrados
+
+    def fragmentos_de(self, documento: str) -> list[Contexto]:
+        return [Contexto(f, t, 1.0, tipo) for f, t, tipo in self._fragmentos
+                if tipo == "documento" and (f == documento or f.startswith(documento + "#"))]
+
+    def contexto_de_documento(self, nombre: str, k: int = 5) -> list[Contexto]:
+        """Primeros k fragmentos de un documento en orden de página (para resúmenes)."""
+        return self.fragmentos_de(nombre)[:k]
+
+    def buscar(self, texto: str, k: int = 3,
+               tipos: tuple[str, ...] | None = None,
+               documento: str | None = None,
+               fuentes: list[str] | None = None) -> list[Contexto]:
+        """Los k fragmentos más relevantes.
+
+        Args:
+            fuentes: lista de nombres de documentos para filtrar (None = todos).
         """
-        peso_palabras: 0.6 = el índice de palabras pesa 60% y el de caracteres 40%.
-        min_score:     puntaje mínimo absoluto para devolver un fragmento.
-        relativo:      además debe alcanzar este % del mejor puntaje (evita colas de resultados flojos).
-        """
-        self._fragmentos = list(fragmentos)
-        self._sin = sinonimos if sinonimos is not None else Sinonimos(GRUPOS_SINONIMOS_RRHH)
-        self._peso = peso_palabras
-        self._min, self._rel = min_score, relativo
-        self._vec_pal = self._vec_car = self._m_pal = self._m_car = None
-        self._ajustar()
-
-    # ---- construcción -------------------------------------------------------------
-    @property
-    def fragmentos(self) -> list[Fragmento]:
-        return list(self._fragmentos)
-
-    def _doc_pal(self, fuente: str, texto: str) -> str:
-        return " ".join(normalizar(f"{_legible(fuente)} {texto}"))
-
-    def _doc_car(self, fuente: str, texto: str) -> str:
-        return texto_plano(f"{_legible(fuente)} {texto}")
-
-    def _ajustar(self) -> None:
-        if not self._fragmentos:
-            return
-        self._vec_pal = TfidfVectorizer(preprocessor=None, tokenizer=str.split, token_pattern=None,
-                                        lowercase=False, ngram_range=(1, 2), sublinear_tf=True)
-        self._vec_car = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), sublinear_tf=True)
-        self._m_pal = self._vec_pal.fit_transform([self._doc_pal(f, t) for f, t in self._fragmentos])
-        self._m_car = self._vec_car.fit_transform([self._doc_car(f, t) for f, t in self._fragmentos])
-
-    def agregar(self, nuevos: Sequence[Fragmento]) -> None:
-        """Suma conocimiento en caliente (p. ej. un documento que el usuario sube) y reindexa."""
-        existentes = set(self._fragmentos)
-        self._fragmentos += [f for f in nuevos if f not in existentes]
-        self._ajustar()
-
-    # ---- búsqueda -----------------------------------------------------------------
-    def _consulta_pal(self, pregunta: str) -> str:
-        # Las palabras originales entran dos veces (originales + inicio de la lista ampliada) y los
-        # sinónimos una: lo que el usuario escribió pesa más que lo que adivinamos.
-        tokens = normalizar(pregunta)
-        return " ".join(tokens + self._sin.expandir(tokens))
-
-    def puntuar(self, pregunta: str) -> np.ndarray:
-        """Puntaje combinado (0-1 aprox.) de la pregunta contra cada fragmento."""
-        if not self._fragmentos or not pregunta.strip():
-            return np.zeros(len(self._fragmentos))
-        q_pal = self._vec_pal.transform([self._consulta_pal(pregunta)])
-        q_car = self._vec_car.transform([texto_plano(pregunta)])
-        s_pal = (self._m_pal @ q_pal.T).toarray().ravel()   # filas TF-IDF ya normalizadas -> coseno
-        s_car = (self._m_car @ q_car.T).toarray().ravel()
-        return self._peso * s_pal + (1 - self._peso) * s_car
-
-    def _contextos(self, sims: np.ndarray, k: int) -> list[Contexto]:
-        orden = sorted(range(len(sims)), key=lambda i: (-sims[i], i))[:k]   # desempate fijo
-        if not orden:
+        q_pal = _tokens_palabra(texto)
+        if self._sinonimos:
+            q_pal = self._sinonimos.expandir(q_pal)
+        q_chr = _tokens_char(texto)
+        if not q_pal and not q_chr:
             return []
-        piso = max(self._min, self._rel * float(sims[orden[0]]))
-        return [Contexto(self._fragmentos[i][0], self._fragmentos[i][1], round(float(sims[i]), 4))
-                for i in orden if sims[i] >= piso]
 
-    def buscar(self, pregunta: str, k: int = 3) -> list[Contexto]:
-        return self._contextos(self.puntuar(pregunta), k)
+        puntajes = []
+        for i, (fuente, _, tipo) in enumerate(self._fragmentos):
+            if tipos and tipo not in tipos:
+                continue
+            if documento and not (fuente == documento or fuente.startswith(documento + "#")):
+                continue
+            if fuentes:
+                nombre_doc = fuente.split("#")[0]
+                if nombre_doc not in fuentes:
+                    continue
+            s_pal = _score(q_pal, self._tf_pal[i], self._idf_pal)
+            s_chr = _score(q_chr, self._tf_chr[i], self._idf_chr)
+            score = s_pal + 0.3 * s_chr
+            if score >= self.MIN_SCORE:
+                puntajes.append((score, i))
 
-    # ---- fábrica (la usa dinamo/sistema.py: no cambia su llamada) --------------------
-    @classmethod
-    def desde_carpeta(cls, carpeta: str | Path, ruta_excel: str | Path | None = None, *,
-                      sinonimos_json: str | Path | None = None, embedder=None, **opciones):
-        """Indexa docs/conocimiento/ + diccionario y LEEME del Excel. Devuelve el híbrido si hay embedder
-        (explícito o por la variable de entorno OLLAMA_EMBED_MODELO)."""
-        if ruta_excel is None and Config is not None:
-            try:
-                ruta_excel = Config().ruta_datos
-            except Exception:
-                ruta_excel = None
-        carpeta = Path(carpeta)
-        json_sin = Path(sinonimos_json) if sinonimos_json else carpeta / "sinonimos.json"
-        sin = Sinonimos.desde_json(json_sin) if json_sin.exists() else None
-        base = cls(construir_fragmentos(carpeta, ruta_excel), sinonimos=sin, **opciones)
-        if embedder is None and os.environ.get("OLLAMA_EMBED_MODELO"):
-            from dinamo.llm.ollama_http import OllamaEmbedder
-            embedder = OllamaEmbedder()
-        return RetrieverHibrido(base, embedder, cache_dir=carpeta / ".cache") if embedder else base
+        puntajes.sort(key=lambda x: (-x[0], x[1]))
+        return [Contexto(self._fragmentos[i][0], self._fragmentos[i][1],
+                         round(p, 4), self._fragmentos[i][2])
+                for p, i in puntajes[:k]]
 
 
-class RetrieverHibrido:
-    """TF-IDF + embeddings, fusionados con Reciprocal Rank Fusion (RRF).
-
-    Por qué: TF-IDF sólo encuentra palabras que se parecen. Con embeddings, "¿por qué la gente se
-    va de la empresa?" encuentra el fragmento de 'motivos de baja' aunque no comparta palabras.
-    RRF usa posiciones en vez de puntajes, así no hay que calibrar escalas distintas.
-    Si el embedder falla (Ollama apagado, modelo sin descargar) todo sigue funcionando con TF-IDF.
-    """
-
-    def __init__(self, base: RetrieverTfidf, embedder, *, cache_dir: str | Path | None = None,
-                 k_rrf: int = 60, min_denso: float = 0.45, candidatos: int = 20):
-        self.base, self.embedder = base, embedder
-        self._k_rrf, self._min_denso, self._cand = k_rrf, min_denso, candidatos
-        self.degradado = False
-        self._matriz = None
-        try:
-            self._matriz = self._cargar_o_calcular(Path(cache_dir) if cache_dir else None)
-        except Exception:
-            self.degradado = True
-
-    @property
-    def fragmentos(self) -> list[Fragmento]:
-        return self.base.fragmentos
-
-    def _cargar_o_calcular(self, cache: Path | None):
-        textos = [f"{t}" for _, t in self.base.fragmentos]
-        if not textos:
-            return None
-        huella = hashlib.md5(("|".join(textos) + self.embedder.modelo).encode()).hexdigest()[:12]
-        archivo = cache / f"emb_{huella}.npy" if cache else None
-        if archivo and archivo.exists():
-            return np.load(archivo)
-        m = self.embedder.documentos(textos)
-        if archivo:
-            archivo.parent.mkdir(parents=True, exist_ok=True)
-            np.save(archivo, m)
-        return m
-
-    def buscar(self, pregunta: str, k: int = 3) -> list[Contexto]:
-        if self._matriz is None:
-            return self.base.buscar(pregunta, k)
-        try:
-            q = self.embedder.pregunta(pregunta)
-        except Exception:
-            self.degradado = True
-            return self.base.buscar(pregunta, k)
-
-        esparcido = self.base.puntuar(pregunta)
-        denso = self._matriz @ q
-        top_e = sorted(range(len(esparcido)), key=lambda i: (-esparcido[i], i))[:self._cand]
-        top_d = sorted(range(len(denso)), key=lambda i: (-denso[i], i))[:self._cand]
-        rrf: dict[int, float] = {}
-        for lista in (top_e, top_d):
-            for pos, i in enumerate(lista):
-                rrf[i] = rrf.get(i, 0.0) + 1.0 / (self._k_rrf + pos + 1)
-
-        relevantes = {i for i in rrf if esparcido[i] >= self.base._min or denso[i] >= self._min_denso}
-        orden = sorted(relevantes, key=lambda i: (-rrf[i], i))[:k]
-        maximo = 2.0 / (self._k_rrf + 1)       # puntaje RRF máximo posible -> escala 0-1
-        frags = self.base.fragmentos
-        return [Contexto(frags[i][0], frags[i][1], round(rrf[i] / maximo, 4)) for i in orden]
-
-
-# Alias: dinamo/sistema.py y los tests actuales importan `Retriever` y llaman Retriever.desde_carpeta(...)
+# ------------------------------------------------------------------ alias de compatibilidad
 Retriever = RetrieverTfidf
+
+
+# ------------------------------------------------------------------ fábrica
+def desde_carpeta(
+    carpeta: str | Path,
+    ruta_excel: str | Path | None = None,
+    sinonimos_json: str | Path | None = None,
+) -> RetrieverTfidf:
+    """Construye un RetrieverTfidf desde una carpeta de conocimiento y un Excel opcional."""
+    sinonimos = Sinonimos.desde_json(sinonimos_json) if sinonimos_json else None
+    frags = construir_fragmentos(carpeta, ruta_excel)
+    # Los fragmentos de construir_fragmentos son (fuente, texto); los marcamos como "conocimiento"
+    fijos = [(f, t, "conocimiento") for f, t in frags]
+    retriever = RetrieverTfidf(sinonimos=sinonimos)
+    retriever._fijos = fijos
+    retriever._indexar(fijos)
+    return retriever
+
+
+# ------------------------------------------------------------------ compatibilidad v0: documento_mencionado
+def documento_mencionado(texto: str, documentos: list[str]) -> str | None:
+    """¿La pregunta nombra un documento? Compatibilidad con brain.py v0."""
+    t = texto_plano(texto)
+    mejor, mejor_n = None, 0
+    for doc in documentos:
+        claves = [p for p in _tokens_palabra(Path(doc).stem.replace("_", " ")) if len(p) > 3]
+        n = sum(1 for p in claves if p in t)
+        if claves and n >= max(1, len(claves) // 2) and n > mejor_n:
+            mejor, mejor_n = doc, n
+    return mejor
