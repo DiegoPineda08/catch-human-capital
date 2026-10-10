@@ -12,6 +12,8 @@ from .base import (
     agregar,
     columna_con_rol,
 )
+from .anomalias import Anomalias
+from .brecha_pares import BrechaPares
 from .comparar_grupos import CompararGrupos
 from .describir_dataset import DescribirDataset
 from .distribucion import Distribucion
@@ -31,7 +33,8 @@ def crear_registro() -> Registro:
             CompararGrupos(),
             Relaciones(),
             PerfilEntidad(),
-            # PerfilEntidad(),     # TODO Diego Pineda
+            Anomalias(),
+            BrechaPares(),
         ]
     )
 
@@ -49,5 +52,7 @@ __all__ = [
     "PerfilEntidad",
     "Distribucion",
     "CompararGrupos",
+    "Anomalias",
+    "BrechaPares",
     "crear_registro",
 ]
