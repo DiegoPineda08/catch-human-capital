@@ -60,9 +60,10 @@ def _nivel_titulo(parrafo: ET.Element) -> int:
     nivel = ppr.find(f"{_W}outlineLvl")
     if nivel is not None:
         try:
-            return int(nivel.get(f"{_W}val", "")) + 1
+            n = int(nivel.get(f"{_W}val", ""))
         except ValueError:
             return 0
+        return n + 1 if n < 9 else 0      # 9 = «texto independiente» en Word: no es un título
     return 0
 
 
