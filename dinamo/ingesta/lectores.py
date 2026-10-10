@@ -12,6 +12,7 @@ Nada más cambia: ni el Brain, ni las Skills, ni la interfaz.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -77,9 +78,10 @@ def leer_docx(ruta: str | Path) -> Documento:
     contenido = leer_word(ruta)
     frags = []
     for sec in contenido.secciones:
-        titulo = sec.titulo or ruta.stem
+        titulo = " ".join(re.sub(r"[\[\]]", " ", sec.titulo or ruta.stem).split())   # los corchetes romperían [C:fuente]
         if sec.texto.strip():
-            frags.append(Fragmento(f"{ruta.name}#{titulo}", sec.texto))
+            texto = f"{titulo}. {sec.texto}" if sec.titulo else sec.texto           # el título también ayuda a encontrarlo
+            frags.append(Fragmento(f"{ruta.name}#{titulo}", texto))
     tablas = []
     for i, tabla in enumerate(contenido.tablas):
         df = _tabla_a_df(tabla)

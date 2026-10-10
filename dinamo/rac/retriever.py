@@ -14,7 +14,7 @@ from pathlib import Path
 from dinamo.core.contracts import Contexto, PerfilDataset
 
 from .fragmentos import cargar_archivo, construir_fragmentos
-from .texto import Sinonimos, normalizar, texto_plano
+from .texto import GRUPOS_SINONIMOS_GENERALES, GRUPOS_SINONIMOS_RRHH, Sinonimos, normalizar, texto_plano
 
 DESCRIPCION_ROL = {
     "entidad": "identifica cada", "tiempo": "marca el periodo", "metrica": "es un indicador numérico",
@@ -93,18 +93,24 @@ def fragmentos_del_perfil(perfil: PerfilDataset, origen: str = "") -> list[tuple
 class RetrieverTfidf:
     """TF-IDF con n-gramas de palabras (1-2) y de caracteres (3-5), fusionados por suma."""
 
-    MIN_SCORE = 0.01
+    MIN_SCORE = 0.05        # por debajo no hay relación real con la pregunta (antes 0.01 devolvía cualquier cosa)
+    MIN_RELATIVO = 0.30     # además debe alcanzar este % del mejor puntaje (evita colas de resultados flojos)
 
     def __init__(self, fragmentos=(), carpeta_conocimiento: str | Path | None = None,
                  sinonimos: Sinonimos | None = None):
         self.carpeta = Path(carpeta_conocimiento) if carpeta_conocimiento else None
-        self._sinonimos = sinonimos
+        self._sinonimos = sinonimos if sinonimos is not None else self._sinonimos_por_defecto()
         fijos = [f if len(f) == 3 else (f[0], f[1], "perfil" if f[0].startswith("perfil#") else "conocimiento")
                  for f in fragmentos]
         if self.carpeta:
             fijos += fragmentos_de_carpeta(self.carpeta / "general")
         self._fijos = fijos
         self._indexar(fijos)
+
+    def _sinonimos_por_defecto(self) -> Sinonimos:
+        """Generales + RR. HH. y, si existen, todos los sinonimos.json bajo la carpeta de conocimiento."""
+        jsons = sorted(self.carpeta.rglob("sinonimos.json")) if self.carpeta and self.carpeta.exists() else []
+        return Sinonimos.desde_jsons(jsons) if jsons else Sinonimos(GRUPOS_SINONIMOS_GENERALES + GRUPOS_SINONIMOS_RRHH)
 
     def _indexar(self, fragmentos: list[tuple[str, str, str]]) -> None:
         self._fragmentos = fragmentos
@@ -127,10 +133,21 @@ class RetrieverTfidf:
     def __len__(self) -> int:
         return len(self._fragmentos)
 
-    def agregar_archivo(self, ruta: str | Path) -> None:
-        """Indexa un documento en caliente sin reiniciar."""
-        nuevos = [(f, t, "documento") for f, t in cargar_archivo(ruta)]
-        self._indexar(self._fragmentos + nuevos)
+    def agregar_archivo(self, ruta: str | Path, nombre: str | None = None) -> int:
+        """Indexa un documento en caliente sin reiniciar. Devuelve cuántos fragmentos nuevos entraron.
+
+        Sobrevive a sincronizar() (se guarda con los fijos), no duplica si se agrega dos veces y un archivo
+        dañado no tumba la app (devuelve 0)."""
+        try:
+            nuevos = [(f, t, "documento") for f, t in cargar_archivo(ruta, nombre)]
+        except Exception:
+            return 0
+        existentes = set(self._fragmentos)
+        nuevos = [f for f in nuevos if f not in existentes]
+        if nuevos:
+            self._fijos = self._fijos + nuevos
+            self._indexar(self._fragmentos + nuevos)
+        return len(nuevos)
 
     def documentos(self) -> list[str]:
         vistos = []
@@ -191,10 +208,13 @@ class RetrieverTfidf:
             if score >= self.MIN_SCORE:
                 puntajes.append((score, i))
 
+        if not puntajes:
+            return []
         puntajes.sort(key=lambda x: (-x[0], x[1]))
+        piso = max(self.MIN_SCORE, self.MIN_RELATIVO * puntajes[0][0])
         return [Contexto(self._fragmentos[i][0], self._fragmentos[i][1],
                          round(p, 4), self._fragmentos[i][2])
-                for p, i in puntajes[:k]]
+                for p, i in puntajes[:k] if p >= piso]
 
 
 # ------------------------------------------------------------------ alias de compatibilidad
@@ -208,7 +228,11 @@ def desde_carpeta(
     sinonimos_json: str | Path | None = None,
 ) -> RetrieverTfidf:
     """Construye un RetrieverTfidf desde una carpeta de conocimiento y un Excel opcional."""
-    sinonimos = Sinonimos.desde_json(sinonimos_json) if sinonimos_json else None
+    if sinonimos_json:
+        sinonimos = Sinonimos.desde_json(sinonimos_json)
+    else:      # cada fuente puede traer su sinonimos.json; se unen todos
+        jsons = sorted(Path(carpeta).rglob("sinonimos.json"))
+        sinonimos = Sinonimos.desde_jsons(jsons) if jsons else None
     frags = construir_fragmentos(carpeta, ruta_excel)
     # Los fragmentos de construir_fragmentos son (fuente, texto); los marcamos como "conocimiento"
     fijos = [(f, t, "conocimiento") for f, t in frags]

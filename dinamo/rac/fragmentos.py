@@ -71,12 +71,12 @@ def fragmentos_paginas(archivo: str, paginas: list[str]) -> list[Fragmento]:
 def leer_paginas_pdf(ruta: Path) -> list[str]:
     """Texto de cada página. Usa pypdf o pdfplumber si alguno está instalado; si no, devuelve []."""
     try:
-        from pypdf import PdfReader
+        from pypdf import PdfReader  # pyright: ignore[reportMissingImports]  (opcional: pip install pypdf)
         return [(p.extract_text() or "") for p in PdfReader(str(ruta)).pages]
     except ImportError:
         pass
     try:
-        import pdfplumber
+        import pdfplumber  # pyright: ignore[reportMissingImports]  (opcional)
         with pdfplumber.open(str(ruta)) as pdf:
             return [(p.extract_text() or "") for p in pdf.pages]
     except ImportError:

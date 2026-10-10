@@ -11,7 +11,6 @@ import json
 import re
 import urllib.error
 import urllib.request
-from typing import Any
 
 _TIMEOUT = 120
 
@@ -35,8 +34,8 @@ class OllamaHTTP:
 
     def disponible(self) -> bool:
         try:
-            urllib.request.urlopen(f"{self.url}/api/tags", timeout=5)
-            return True
+            with urllib.request.urlopen(f"{self.url}/api/tags", timeout=5):
+                return True
         except Exception:
             return False
 
@@ -56,7 +55,7 @@ class OllamaHTTP:
                 {"role": "system", "content": sistema},
                 {"role": "user", "content": usuario},
             ],
-            "options": {"temperature": temperatura, "seed": seed},
+            "options": {"temperature": temperatura, "seed": seed, "num_ctx": 4096},   # contexto amplio: reglas + 3 fragmentos + evidencias
             "stream": False,
         }
         resp = self._post("/api/chat", payload)
@@ -109,4 +108,6 @@ class OllamaEmbedder:
         return [self._cliente.embed(self.modelo, t) for t in textos]
 
     def disponible(self) -> bool:
-        return self._cliente.disponible() and self.modelo in self._cliente.modelos()
+        # Ollama lista los modelos con su etiqueta ("nomic-embed-text:latest"): comparar sin ella
+        return self._cliente.disponible() and any(
+            m == self.modelo or m.startswith(self.modelo + ":") for m in self._cliente.modelos())
