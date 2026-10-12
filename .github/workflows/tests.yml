@@ -1,0 +1,17 @@
+# GitHub Actions: cada vez que alguien sube código (push) o abre un Pull Request,
+# GitHub crea una computadora temporal, instala el proyecto y corre todos los tests.
+# Si un test falla, el Pull Request se marca con una X roja y no se debe unir a main.
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # 1. descarga el código del repositorio
+      - uses: actions/setup-python@v5      # 2. instala Python
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt   # 3. instala las librerías
+      - run: pytest                             # 4. corre los tests (test_datos_reales se salta: data/ no está en GitHub)
