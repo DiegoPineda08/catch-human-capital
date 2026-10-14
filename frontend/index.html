@@ -1,0 +1,948 @@
+<title>DINAMO Analytics</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<style>
+/* ── Layout: sidebar izquierdo fijo + área de chat derecha ── */
+:root {
+  --bg:        #F7F6F3;
+  --surface:   #FFFFFF;
+  --sidebar:   #1A1A2E;
+  --fg:        #1C1C1E;
+  --fg-muted:  #6B6B72;
+  --accent:    #2563EB;
+  --accent-bg: #EEF3FD;
+  --bot-bg:    #FFFFFF;
+  --user-bg:   #1A1A2E;
+  --user-fg:   #FFFFFF;
+  --border:    #E4E2DC;
+  --chip-bg:   #EEF3FD;
+  --chip-fg:   #1D4ED8;
+  --shadow:    0 1px 4px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #0F0F1A;
+    --surface:   #1A1A2E;
+    --sidebar:   #0A0A14;
+    --fg:        #F0EFE8;
+    --fg-muted:  #8B8B96;
+    --accent:    #4F8EF7;
+    --accent-bg: #1A2640;
+    --bot-bg:    #1A1A2E;
+    --user-bg:   #243055;
+    --user-fg:   #F0EFE8;
+    --border:    #2A2A3E;
+    --chip-bg:   #1A2640;
+    --chip-fg:   #7BAAF9;
+    --shadow:    0 1px 4px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.2);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F0F1A; --surface: #1A1A2E; --sidebar: #0A0A14;
+  --fg: #F0EFE8; --fg-muted: #8B8B96; --accent: #4F8EF7;
+  --accent-bg: #1A2640; --bot-bg: #1A1A2E; --user-bg: #243055;
+  --user-fg: #F0EFE8; --border: #2A2A3E; --chip-bg: #1A2640;
+  --chip-fg: #7BAAF9; --shadow: 0 1px 4px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.2);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── Shell ── */
+.shell {
+  display: flex;
+  height: 100%;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--sidebar);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  gap: 8px;
+}
+.sidebar-logo {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 22px;
+  color: #fff;
+  letter-spacing: -.3px;
+  padding: 0 8px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  margin-bottom: 8px;
+}
+.sidebar-logo span {
+  color: #7BAAF9;
+}
+.sidebar-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.35);
+  padding: 12px 8px 4px;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(255,255,255,.65);
+  font-size: 13.5px;
+  transition: background .15s, color .15s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+.sidebar-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+.sidebar-item.active { background: rgba(79,142,247,.2); color: #7BAAF9; }
+.sidebar-item svg { flex-shrink: 0; opacity: .7; }
+.sidebar-bottom {
+  margin-top: auto;
+}
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.06);
+}
+.user-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4F8EF7, #7B61FF);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; color: #fff; flex-shrink: 0;
+}
+.user-info { overflow: hidden; }
+.user-name { font-size: 13px; font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-role { font-size: 11px; color: rgba(255,255,255,.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Chat area ── */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.chat-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.chat-header-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 17px;
+  color: var(--fg);
+}
+.chat-header-meta {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.header-actions { display: flex; gap: 8px; }
+.btn-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
+}
+.btn-icon:hover { background: var(--accent-bg); color: var(--accent); }
+
+/* ── Messages ── */
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  scroll-behavior: smooth;
+}
+
+/* Welcome screen */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 24px;
+  text-align: center;
+  gap: 16px;
+}
+.welcome-icon {
+  width: 56px; height: 56px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2563EB, #7B61FF);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 8px;
+}
+.welcome h2 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 26px;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.welcome p {
+  color: var(--fg-muted);
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.starter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  max-width: 560px;
+  width: 100%;
+  margin-top: 8px;
+}
+.starter-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  font-size: 13.5px;
+  color: var(--fg);
+  line-height: 1.45;
+}
+.starter-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.starter-card .icon { font-size: 20px; margin-bottom: 6px; }
+.starter-card strong { display: block; font-weight: 600; margin-bottom: 2px; }
+
+/* Message bubbles */
+.msg { display: flex; gap: 12px; max-width: 780px; width: 100%; }
+.msg.user { flex-direction: row-reverse; margin-left: auto; }
+.msg.bot { flex-direction: row; }
+
+.msg-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; margin-top: 2px;
+}
+.msg.bot .msg-avatar { background: linear-gradient(135deg, #2563EB, #7B61FF); color: #fff; }
+.msg.user .msg-avatar { background: var(--user-bg); color: var(--user-fg); }
+
+.msg-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1; }
+.msg.user .msg-body { align-items: flex-end; }
+
+.bubble {
+  padding: 13px 16px;
+  border-radius: 16px;
+  font-size: 14.5px;
+  line-height: 1.65;
+  max-width: 100%;
+}
+.msg.user .bubble {
+  background: var(--user-bg);
+  color: var(--user-fg);
+  border-bottom-right-radius: 4px;
+}
+.msg.bot .bubble {
+  background: var(--bot-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow);
+}
+.bubble strong { font-weight: 600; }
+.bubble em { font-style: italic; color: var(--fg-muted); }
+
+/* Narrative paragraph */
+.narrative {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--fg);
+}
+
+/* Chart card */
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+  width: 100%;
+}
+.chart-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+.chart-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 16px;
+  color: var(--fg);
+}
+.chart-subtitle {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin-top: 2px;
+}
+.chart-stat {
+  text-align: right;
+}
+.chart-stat-value {
+  font-family: 'DM Mono', monospace;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.chart-stat-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.chart-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 200px;
+}
+
+/* Suggestions chips */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.suggestions-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 2px;
+}
+.chip {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s, box-shadow .15s;
+  font-family: 'DM Sans', sans-serif;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.1);
+}
+.chip::before { content: '↗'; font-size: 12px; opacity: .6; flex-shrink: 0; }
+
+/* Typing indicator */
+.typing { display: flex; gap: 5px; align-items: center; padding: 12px 16px; }
+.typing span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fg-muted);
+  animation: bounce 1.2s infinite;
+}
+.typing span:nth-child(2) { animation-delay: .2s; }
+.typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: .5; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+
+/* ── Input bar ── */
+.input-bar {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.input-wrap {
+  flex: 1;
+  position: relative;
+}
+textarea#msg-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14.5px;
+  background: var(--bg);
+  color: var(--fg);
+  resize: none;
+  outline: none;
+  max-height: 120px;
+  line-height: 1.5;
+  transition: border-color .15s;
+}
+textarea#msg-input:focus { border-color: var(--accent); }
+textarea#msg-input::placeholder { color: var(--fg-muted); }
+.btn-send {
+  width: 42px; height: 42px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: opacity .15s, transform .1s;
+}
+.btn-send:hover { opacity: .88; }
+.btn-send:active { transform: scale(.94); }
+.btn-send:disabled { opacity: .4; cursor: default; }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .sidebar { display: none; }
+  .messages { padding: 16px; }
+  .input-bar { padding: 12px 16px; }
+  .starter-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Dataset badge ── */
+.dataset-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent-bg);
+  color: var(--chip-fg);
+  border-radius: 20px;
+  padding: 3px 10px 3px 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.dataset-badge::before { content: '📊'; font-size: 12px; }
+
+/* confidence bar */
+.conf-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.conf-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width .6s ease; }
+</style>
+
+<div class="shell">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">DINA<span>MO</span></div>
+
+    <div class="sidebar-label">Navegación</div>
+    <button class="sidebar-item active" onclick="setTab('chat')">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Conversación
+    </button>
+    <button class="sidebar-item" onclick="setTab('datasets')">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
+      Datos
+    </button>
+    <button class="sidebar-item" onclick="setTab('history')">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Historial
+    </button>
+
+    <div class="sidebar-bottom">
+      <div class="user-card">
+        <div class="user-avatar" id="sidebar-avatar">A</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebar-name">Analista</div>
+          <div class="user-role" id="sidebar-role">Capital Humano</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Chat -->
+  <main class="chat-area">
+    <header class="chat-header">
+      <div>
+        <div class="chat-header-title">Explorador de datos</div>
+        <div class="chat-header-meta" id="header-meta">Conectado · ventas_tiendas</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-icon" title="Cambiar tema" onclick="toggleTheme()">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button class="btn-icon" title="Nueva conversación" onclick="clearChat()">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="messages" id="messages">
+      <!-- Welcome state -->
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">
+          <svg width="28" height="28" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <h2>¿Qué quieres explorar hoy?</h2>
+        <p>Haz una pregunta sobre tus datos de Capital Humano. DINAMO analiza, narra y visualiza los resultados para ti.</p>
+        <div class="starter-grid">
+          <button class="starter-card" onclick="send('¿Cómo ha evolucionado ventas?')">
+            <div class="icon">📈</div>
+            <strong>Tendencia</strong>
+            ¿Cómo ha evolucionado ventas?
+          </button>
+          <button class="starter-card" onclick="send('¿Qué tiendas tienen mayor ventas?')">
+            <div class="icon">🏆</div>
+            <strong>Ranking</strong>
+            ¿Qué tiendas tienen mayor ventas?
+          </button>
+          <button class="starter-card" onclick="send('Compara ventas por region')">
+            <div class="icon">🗺️</div>
+            <strong>Comparación</strong>
+            Compara ventas por región
+          </button>
+          <button class="starter-card" onclick="send('¿Qué factores se relacionan con ventas?')">
+            <div class="icon">🔗</div>
+            <strong>Relaciones</strong>
+            ¿Qué factores se relacionan?
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-bar">
+      <div class="input-wrap">
+        <textarea id="msg-input" rows="1" placeholder="Escribe tu pregunta sobre los datos…"></textarea>
+      </div>
+      <button class="btn-send" id="btn-send" onclick="sendFromInput()">
+        <svg width="18" height="18" fill="none" stroke="#fff" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ── Estado ── */
+const API = 'http://localhost:8000';
+let chartInstances = {};
+let theme = 'system';
+
+/* ── Helpers UI ── */
+const $messages = document.getElementById('messages');
+const $input    = document.getElementById('msg-input');
+const $send     = document.getElementById('btn-send');
+const $welcome  = document.getElementById('welcome');
+
+function hideWelcome() {
+  if ($welcome) { $welcome.style.display = 'none'; }
+}
+
+function scrollBottom() {
+  $messages.scrollTop = $messages.scrollHeight;
+}
+
+function toggleTheme() {
+  const r = document.documentElement;
+  if (!r.dataset.theme || r.dataset.theme === 'light') {
+    r.dataset.theme = 'dark';
+  } else {
+    r.dataset.theme = 'light';
+  }
+}
+
+function setTab(tab) {
+  document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+
+function clearChat() {
+  $messages.innerHTML = '';
+  $messages.appendChild($welcome);
+  $welcome.style.display = '';
+  Object.values(chartInstances).forEach(c => c.destroy());
+  chartInstances = {};
+}
+
+/* ── Input auto-resize ── */
+$input.addEventListener('input', () => {
+  $input.style.height = 'auto';
+  $input.style.height = Math.min($input.scrollHeight, 120) + 'px';
+});
+$input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFromInput(); }
+});
+
+function sendFromInput() {
+  const text = $input.value.trim();
+  if (!text) return;
+  $input.value = '';
+  $input.style.height = 'auto';
+  send(text);
+}
+
+/* ── Agregar mensaje de usuario ── */
+function addUserMsg(text) {
+  hideWelcome();
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  div.innerHTML = `
+    <div class="msg-avatar">Tú</div>
+    <div class="msg-body">
+      <div class="bubble">${escHtml(text)}</div>
+    </div>`;
+  $messages.appendChild(div);
+  scrollBottom();
+}
+
+/* ── Typing indicator ── */
+function addTyping() {
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.id = 'typing-indicator';
+  div.innerHTML = `
+    <div class="msg-avatar">D</div>
+    <div class="msg-body">
+      <div class="bubble bot-bg">
+        <div class="typing"><span></span><span></span><span></span></div>
+      </div>
+    </div>`;
+  $messages.appendChild(div);
+  scrollBottom();
+  return div;
+}
+
+/* ── Agregar respuesta del bot ── */
+function addBotMsg(data) {
+  const typingEl = document.getElementById('typing-indicator');
+  if (typingEl) typingEl.remove();
+
+  const id = 'chart-' + Date.now();
+  const hasChart = data.grafica && data.grafica.tipo !== 'ninguna' && data.grafica.datos && data.grafica.datos.length > 0;
+
+  // Calcular stat principal para el encabezado de la gráfica
+  let statValue = '', statLabel = '';
+  if (hasChart) {
+    const vals = data.grafica.datos.map(d => d.valor);
+    if (data.intencion === 'tendencia') {
+      const pct = vals.length > 1
+        ? (((vals[vals.length-1] - vals[0]) / Math.abs(vals[0])) * 100).toFixed(1)
+        : 0;
+      statValue = (pct > 0 ? '+' : '') + pct + '%';
+      statLabel = 'variación total';
+    } else {
+      statValue = '$' + vals[0].toLocaleString('es-CO');
+      statLabel = 'valor más alto';
+    }
+  }
+
+  // Narrativa enriquecida con markdown básico
+  const narrativa = (data.narrativa || '')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  const confPct = Math.round((data.confianza || 1) * 100);
+
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.innerHTML = `
+    <div class="msg-avatar">D</div>
+    <div class="msg-body">
+      <div class="bubble">
+        <p class="narrative">${narrativa}</p>
+        ${confPct < 100 ? `
+        <div style="margin-top:10px">
+          <div style="font-size:11px;color:var(--fg-muted);margin-bottom:3px">Confianza del análisis: ${confPct}%</div>
+          <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%"></div></div>
+        </div>` : ''}
+      </div>
+      ${hasChart ? `
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div>
+            <div class="chart-title">${escHtml(data.grafica.titulo)}</div>
+            <div class="chart-subtitle">${escHtml(data.metrica)} · ${data.grafica.datos.length} registros</div>
+          </div>
+          <div class="chart-stat">
+            <div class="chart-stat-value">${statValue}</div>
+            <div class="chart-stat-label">${statLabel}</div>
+          </div>
+        </div>
+        <div class="chart-canvas-wrap">
+          <canvas id="${id}"></canvas>
+        </div>
+      </div>` : ''}
+      ${data.sugerencias && data.sugerencias.length ? `
+      <div class="suggestions">
+        <div class="suggestions-label">Puedes preguntar</div>
+        ${data.sugerencias.map((s, i) => `
+          <button class="chip" onclick="send(${JSON.stringify(s)})">${escHtml(s)}</button>
+        `).join('')}
+      </div>` : ''}
+    </div>`;
+
+  $messages.appendChild(div);
+  scrollBottom();
+
+  // Renderizar gráfica
+  if (hasChart) {
+    setTimeout(() => renderChart(id, data.grafica, data.intencion), 50);
+  }
+}
+
+/* ── Renderizar Chart.js ── */
+function renderChart(canvasId, grafica, intencion) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // Destruir instancia previa si existe
+  if (chartInstances[canvasId]) {
+    chartInstances[canvasId].destroy();
+    delete chartInstances[canvasId];
+  }
+
+  const isDark = document.documentElement.dataset.theme === 'dark'
+    || (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const gridColor  = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const labelColor = isDark ? '#8B8B96' : '#6B6B72';
+  const accentColor = isDark ? '#4F8EF7' : '#2563EB';
+
+  const labels = grafica.datos.map(d => d.etiqueta);
+  const values = grafica.datos.map(d => d.valor);
+
+  let config;
+
+  if (grafica.tipo === 'linea') {
+    config = {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          borderColor: accentColor,
+          backgroundColor: isDark ? 'rgba(79,142,247,0.12)' : 'rgba(37,99,235,0.08)',
+          fill: true,
+          tension: 0.35,
+          borderWidth: 2,
+          pointRadius: values.length <= 12 ? 4 : 0,
+          pointHoverRadius: 6,
+          pointBackgroundColor: accentColor,
+          pointBorderColor: isDark ? '#1A1A2E' : '#fff',
+          pointBorderWidth: 2,
+        }]
+      },
+      options: chartOptions(gridColor, labelColor, grafica.unidad, 'line')
+    };
+  } else if (grafica.tipo === 'barras_horizontales') {
+    config = {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: values.map((_, i) =>
+            i === 0 ? accentColor : (isDark ? 'rgba(79,142,247,0.35)' : 'rgba(37,99,235,0.25)')
+          ),
+          borderRadius: 6,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        ...chartOptions(gridColor, labelColor, grafica.unidad, 'bar'),
+        indexAxis: 'y',
+      }
+    };
+  } else {
+    config = {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: accentColor + 'CC',
+          borderRadius: 5,
+          borderSkipped: 'bottom',
+        }]
+      },
+      options: chartOptions(gridColor, labelColor, grafica.unidad, 'bar')
+    };
+  }
+
+  chartInstances[canvasId] = new Chart(canvas, config);
+}
+
+function chartOptions(gridColor, labelColor, unidad, tipo) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(20,20,32,0.92)',
+        titleColor: '#fff',
+        bodyColor: 'rgba(255,255,255,0.7)',
+        padding: 10,
+        cornerRadius: 8,
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed[tipo === 'bar' && ctx.chart.options.indexAxis === 'y' ? 'x' : 'y'];
+            return ' ' + unidad + v.toLocaleString('es-CO');
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: gridColor, drawBorder: false },
+        ticks: { color: labelColor, font: { size: 11, family: 'DM Mono' } }
+      },
+      y: {
+        grid: { color: gridColor, drawBorder: false },
+        ticks: {
+          color: labelColor,
+          font: { size: 11, family: 'DM Mono' },
+          callback: v => unidad + v.toLocaleString('es-CO')
+        }
+      }
+    }
+  };
+}
+
+/* ── Mock inteligente (sin servidor) ── */
+function mockResponder(texto) {
+  const t = texto.toLowerCase();
+
+  // Datos de demo — simulan la salida de brain.responder()
+  if (t.includes('evolucio') || t.includes('tendencia') || t.includes('cómo ha')) {
+    return {
+      narrativa: 'En **enero de 2024**, las 8 tiendas registraron una mediana de ventas de **$105,543**. A lo largo del año la cifra fue escalando mes a mes, y para **diciembre de 2024** había alcanzado **$131,598** — un crecimiento del **+24.7%** en doce meses. El punto más alto del período fue **noviembre** (2024-11), mientras que **marzo** (2024-03) fue el mes más bajo, probablemente influenciado por el cierre de temporada.',
+      grafica: {
+        tipo: 'linea',
+        titulo: 'Evolución de ventas 2024',
+        unidad: '$',
+        datos: [
+          {etiqueta:'Ene',valor:105543},{etiqueta:'Feb',valor:108200},{etiqueta:'Mar',valor:97800},
+          {etiqueta:'Abr',valor:112400},{etiqueta:'May',valor:115900},{etiqueta:'Jun',valor:119200},
+          {etiqueta:'Jul',valor:121800},{etiqueta:'Ago',valor:118600},{etiqueta:'Sep',valor:124300},
+          {etiqueta:'Oct',valor:127900},{etiqueta:'Nov',valor:133400},{etiqueta:'Dic',valor:131598}
+        ]
+      },
+      sugerencias: ['¿Qué tiendas tienen mayor ventas?', 'Compara ventas por región', '¿Qué factores se relacionan con ventas?'],
+      intencion: 'tendencia', metrica: 'ventas', confianza: 0.87
+    };
+  }
+
+  if (t.includes('tiend') || t.includes('ranking') || t.includes('mayor')) {
+    return {
+      narrativa: '**Tienda Norte** lidera el ranking de ventas con **$287,400** en el período — casi el doble que la tienda de menor desempeño. Le siguen de cerca **Tienda Sur** ($241,200) y **Tienda Centro** ($198,700). La brecha entre la primera y la última tienda es de **$163,500**, lo que sugiere que hay oportunidades importantes de mejora o diferencias de mercado que vale la pena investigar.',
+      grafica: {
+        tipo: 'barras_horizontales',
+        titulo: 'Ventas por tienda',
+        unidad: '$',
+        datos: [
+          {etiqueta:'Tienda Norte',valor:287400},{etiqueta:'Tienda Sur',valor:241200},
+          {etiqueta:'Tienda Centro',valor:198700},{etiqueta:'Tienda Este',valor:176300},
+          {etiqueta:'Tienda Oeste',valor:154800},{etiqueta:'Tienda Baja',valor:123900}
+        ]
+      },
+      sugerencias: ['Compara ventas por región', '¿Cómo ha evolucionado Tienda Norte?', '¿Qué factores explican la diferencia?'],
+      intencion: 'ranking', metrica: 'ventas', confianza: 0.92
+    };
+  }
+
+  if (t.includes('region') || t.includes('compar')) {
+    return {
+      narrativa: 'La **Región Norte** concentra el **38%** del total de ventas, posicionándose como la zona más productiva. La **Región Sur** representa el **29%** y muestra la mayor tendencia de crecimiento trimestral (+8%). La **Región Centro**, aunque tercera en volumen (**21%**), tiene el ticket promedio más alto por transacción. La **Región Este** (**12%**) es la de menor participación y podría ser un foco de expansión estratégica.',
+      grafica: {
+        tipo: 'barras',
+        titulo: 'Ventas por región',
+        unidad: '$',
+        datos: [
+          {etiqueta:'Norte',valor:312400},{etiqueta:'Sur',valor:238700},
+          {etiqueta:'Centro',valor:172600},{etiqueta:'Este',valor:98300}
+        ]
+      },
+      sugerencias: ['¿Qué tiendas están en la Región Norte?', '¿Cómo ha evolucionado la Región Sur?', '¿Qué factores explican la diferencia regional?'],
+      intencion: 'comparar_grupos', metrica: 'ventas', confianza: 0.84
+    };
+  }
+
+  // Fallback genérico
+  return {
+    narrativa: 'He analizado tu pregunta sobre **' + escHtml(texto) + '**. Para mostrarte los datos precisos necesito que el servidor DINAMO esté activo (`uvicorn dinamo.presentation.servidor:app`). Por ahora estoy en modo demostración con datos de ejemplo.',
+    grafica: { tipo: 'ninguna', datos: [] },
+    sugerencias: ['¿Cómo ha evolucionado ventas?', '¿Qué tiendas tienen mayor ventas?', 'Compara ventas por región'],
+    intencion: 'desconocida', metrica: 'datos', confianza: 0.5
+  };
+}
+
+/* ── Enviar mensaje ── */
+async function send(texto) {
+  if (!texto.trim()) return;
+  $send.disabled = true;
+
+  addUserMsg(texto);
+  const typing = addTyping();
+
+  // Simular latencia de red
+  await new Promise(r => setTimeout(r, 900 + Math.random() * 600));
+
+  let data;
+  try {
+    // Intentar servidor real primero
+    const res = await fetch(API + '/preguntar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      data = await res.json();
+    } else {
+      data = mockResponder(texto);
+    }
+  } catch {
+    data = mockResponder(texto);
+  }
+
+  addBotMsg(data);
+  $send.disabled = false;
+  $input.focus();
+}
+
+/* ── Escape HTML ── */
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
