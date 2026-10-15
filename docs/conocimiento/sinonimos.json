@@ -1,0 +1,18 @@
+[
+  ["rotación", "bajas", "renuncias", "salidas", "attrition", "turnover", "se van", "se va la gente"],
+  ["ausentismo", "faltas", "inasistencias", "ausencias"],
+  ["incapacidad", "incapacidades", "licencia médica", "enfermedad"],
+  ["contratación", "reclutamiento", "ingresos", "altas", "vacantes"],
+  ["salario", "sueldo", "remuneración", "paga"],
+  ["bono", "incentivo", "premio"],
+  ["prestaciones", "beneficios", "compensaciones"],
+  ["sindicato", "sindical", "gremio"],
+  ["contrato colectivo", "cct", "revisión contractual"],
+  ["capacitación", "entrenamiento", "formación"],
+  ["transporte", "camión", "ruta de personal"],
+  ["jornada", "turno", "horario"],
+  ["antigüedad", "permanencia", "tiempo en la empresa"],
+  ["seguro de gastos médicos", "sgmm", "gastos médicos mayores"],
+  ["vales de despensa", "despensa", "vales"],
+  ["participación de utilidades", "ptu", "reparto de utilidades"]
+]

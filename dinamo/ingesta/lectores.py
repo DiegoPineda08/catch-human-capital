@@ -12,6 +12,7 @@ Nada más cambia: ni el Brain, ni las Skills, ni la interfaz.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -21,6 +22,7 @@ from dinamo.core.contracts import Documento, Fragmento, TablaExtraida
 
 from .pdf import leer_pdf, trocear
 from .tablas import detectar_encabezado, normalizar_tabla, slug
+from .word import leer_word, tabla_a_dataframe as _tabla_a_df
 
 MIN_FILAS, MIN_COLUMNAS = 2, 2
 
@@ -70,6 +72,24 @@ def fragmentar_markdown(texto: str, nombre: str) -> list[Fragmento]:
     return partes
 
 
+def leer_docx(ruta: str | Path) -> Documento:
+    """.docx: secciones de texto -> Fragmentos; tablas -> TablaExtraida."""
+    ruta = Path(ruta)
+    contenido = leer_word(ruta)
+    frags = []
+    for sec in contenido.secciones:
+        titulo = " ".join(re.sub(r"[\[\]]", " ", sec.titulo or ruta.stem).split())   # los corchetes romperían [C:fuente]
+        if sec.texto.strip():
+            texto = f"{titulo}. {sec.texto}" if sec.titulo else sec.texto           # el título también ayuda a encontrarlo
+            frags.append(Fragmento(f"{ruta.name}#{titulo}", texto))
+    tablas = []
+    for i, tabla in enumerate(contenido.tablas):
+        df = _tabla_a_df(tabla)
+        if df.shape[0] >= MIN_FILAS and df.shape[1] >= MIN_COLUMNAS:
+            tablas.append(TablaExtraida(f"{slug(ruta.stem)}_tabla{i + 1}", ruta.name, df))
+    return Documento(ruta.name, "docx", tuple(tablas), tuple(frags))
+
+
 def leer_texto(ruta: str | Path) -> Documento:
     """.md se divide por títulos; .txt se corta en fragmentos de pocas frases."""
     ruta = Path(ruta)
@@ -83,6 +103,7 @@ LECTORES: dict[str, Callable[[str | Path], Documento]] = {
     ".csv": leer_csv, ".tsv": leer_csv,
     ".xlsx": leer_excel, ".xlsm": leer_excel, ".xls": leer_excel,
     ".pdf": leer_pdf,
+    ".docx": leer_docx,
     ".txt": leer_texto, ".md": leer_texto,
 }
 EXTENSIONES = tuple(LECTORES)
