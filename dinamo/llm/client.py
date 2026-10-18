@@ -64,4 +64,14 @@ def crear_cliente(proveedor: str, **kwargs) -> ClienteLLM:
         return LLMFalso()
     if proveedor == "ollama":
         return LLMOllama(**kwargs)
+    # Proveedores con streaming (dinamo/llm/proveedores.py). "auto": Ollama si responde, si no
+    # el primero con clave en .env; si no hay ninguno, el LLM falso (nunca inventa nada).
+    from .proveedores import NUBE, elegir_proveedor
+    if proveedor == "auto" or proveedor in NUBE:
+        elegido = elegir_proveedor(proveedor)
+        if elegido is not None:
+            return elegido
+        if proveedor == "auto":
+            return LLMFalso()
+        raise LLMNoDisponible(f"Falta la clave de {proveedor} en el archivo .env ({NUBE[proveedor][0]})")
     raise ValueError(f"Proveedor LLM desconocido: {proveedor}")

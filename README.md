@@ -1,5 +1,15 @@
 # DINAMO_ANALITICS
 
+> ## Novedad — Asistente DINAMO (Fase 1)
+> Interfaz web + servidor local con orquestador de IA, investigación con fuentes, chats aislados con memoria,
+> limpieza de datos con aprobación e indicadores de capital humano.
+>
+> - **Windows:** doble clic en `INICIAR_DINAMO.bat` · **macOS/Linux:** `./iniciar_dinamo.sh`
+> - Manual: `pip install -r requirements-servidor.txt` y `python -m dinamo.servidor` → http://127.0.0.1:8765
+> - Documentación: [`docs/fase1/`](docs/fase1/) — instalación y uso, arquitectura, pruebas e integraciones,
+>   pendientes y guía de demo.
+> - La interfaz Streamlit anterior (`streamlit run app/streamlit_app.py`) sigue funcionando.
+
 DINAMO_ANALITICS es un agente inteligente local para análisis y data storytelling.
 Recibe archivos de **cualquier tema** (Excel, CSV, PDF, Markdown o texto), descubre solo qué
 contienen y conversa con el usuario sobre ellos: responde, pregunta cuando algo es ambiguo,

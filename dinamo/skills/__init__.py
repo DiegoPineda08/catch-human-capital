@@ -18,6 +18,8 @@ from .comparar_grupos import CompararGrupos
 from .describir_dataset import DescribirDataset
 from .distribucion import Distribucion
 from .ranking import Ranking
+from .indicadores_talento import IndicadoresTalento
+from .visualizacion import Dispersion, Histograma
 from .perfil_entidad import PerfilEntidad
 from .relaciones import Relaciones
 from .tendencia import Tendencia
@@ -35,6 +37,9 @@ def crear_registro() -> Registro:
             PerfilEntidad(),
             Anomalias(),
             BrechaPares(),
+            IndicadoresTalento(),
+            Histograma(),
+            Dispersion(),
         ]
     )
 
@@ -54,5 +59,8 @@ __all__ = [
     "CompararGrupos",
     "Anomalias",
     "BrechaPares",
+    "IndicadoresTalento",
+    "Histograma",
+    "Dispersion",
     "crear_registro",
 ]

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es" data-theme="dark" data-accent="azul">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="DINAMO Analytics: asistente de análisis de capital humano con cálculos verificables, investigación con fuentes y avatar con voz.">
+<title>DINAMO Analytics</title>
+<link rel="icon" href="img/sofia.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Serif+Display&display=swap">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="banner-servidor" id="bannerServidor" hidden></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
+    <div class="logo">DINAMO<span>·</span>Analytics</div>
+    <button class="btn-nueva" id="btnNueva">
+      <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Nueva conversación
+    </button>
+    <div class="side-label">Navegación</div>
+    <button class="nav-item activo" data-vista="chat">
+      <svg class="i" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Conversación
+    </button>
+    <button class="nav-item" data-vista="datos">
+      <svg class="i" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg> Datos <span class="badge" id="badgeDatos">0</span>
+    </button>
+    <button class="nav-item" data-vista="investigacion">
+      <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg> Investigación <span class="badge" id="badgeInv">0</span>
+    </button>
+    <button class="nav-item" data-vista="historial">
+      <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Historial <span class="badge" id="badgeHist">0</span>
+    </button>
+    <button class="nav-item" data-vista="integraciones">
+      <svg class="i" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0z"/><path d="M12 17v4"/></svg> Integraciones
+    </button>
+    <div class="side-label">Recientes</div>
+    <div class="recientes" id="recientes"></div>
+    <div class="side-foot">
+      <div class="estado-servidor" id="estadoServidor"><span class="punto"></span><span>Conectando con el servidor…</span></div>
+      <button class="estado-servidor estado-boton" id="estadoLLM" title="Ver el modelo de lenguaje y las integraciones"><span class="punto"></span><span>IA: comprobando…</span></button>
+      <button class="btn-side" id="btnWebLLM" hidden>Activar IA del navegador</button>
+      <div class="side-row">
+        <button class="btn-side" id="btnTema" title="Cambiar entre modo claro y oscuro">
+          <svg class="i" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg> <span id="txtTema">Tema</span>
+        </button>
+        <button class="btn-side" id="btnAjustes" title="Integraciones y modelo de lenguaje">
+          <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg> Ajustes
+        </button>
+      </div>
+      <div class="acentos" role="group" aria-label="Color de acento">
+        <small>Acento</small>
+        <button data-acento="azul" style="background:#2f7bff" title="Azul" aria-label="Acento azul"></button>
+        <button data-acento="violeta" style="background:#8a63ff" title="Violeta" aria-label="Acento violeta"></button>
+        <button data-acento="verde" style="background:#1fb3a5" title="Verde azulado" aria-label="Acento verde azulado"></button>
+        <button data-acento="ambar" style="background:#e39a2d" title="Ámbar" aria-label="Acento ámbar"></button>
+      </div>
+      <button class="perfil-side" id="btnPerfil" type="button" title="Configurar tu nombre" aria-label="Configurar perfil">
+        <span class="perfil-avatar" id="avatarPerfil" aria-hidden="true">DA</span>
+        <span class="perfil-info"><b id="nombrePerfil">Tu perfil</b><small id="subPerfil">Añadir nombre y rol</small></span>
+        <svg class="i perfil-edit-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+      </button>
+      <div class="privacidad" id="privacidad">Comprobando dónde se procesan tus datos…</div>
+    </div>
+  </aside>
+  <div class="fondo-movil" id="fondoMovil"></div>
+
+  <main class="main">
+    <div class="topbar">
+      <button class="icon-btn" id="btnMenu" aria-label="Abrir menú"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <div class="logo">DINAMO<span>·</span>Analytics</div>
+    </div>
+
+    <!-- VISTA: CONVERSACIÓN -->
+    <section class="vista" id="vista-chat">
+      <div class="vista-head">
+        <div class="titulo-wrap">
+          <h1 id="tituloConv" title="Haz clic para cambiar el nombre">Nueva conversación</h1>
+        </div>
+        <button class="btn fantasma mini chat-avatar-toggle" id="btnAvatarPanelToggle" type="button" aria-controls="avatarAsistentePanel" aria-expanded="true" title="Mostrar u ocultar el avatar de voz">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg> Avatar
+        </button>
+        <button class="btn mini research-head-btn" id="btnIrInvestigacion" type="button" title="Web, artículos científicos, noticias y estadísticas oficiales">⌕ Investigación</button>
+        <button class="btn fantasma mini" id="btnExportar" title="Descargar la conversación con sus fuentes">
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg> Exportar
+        </button>
+      </div>
+
+      <aside class="dinamo-avatar-panel" id="avatarAsistentePanel" aria-label="Avatar con voz de DINAMO">
+        <div class="avatar-panel-head">
+          <div class="avatar-panel-id"><span class="avatar-live-dot"></span><div><strong id="avatarNombreAsistente">Sofía · Asistente</strong><small id="avatarEstado" aria-live="polite">Lista para ayudarte</small></div></div>
+          <button class="icon-btn" id="btnAvatarClose" type="button" aria-label="Ocultar avatar" title="Ocultar avatar">
+            <svg class="i" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="avatar-stage" id="avatarStage">
+          <div class="avatar-aura"></div>
+          <img class="avatar-foto" id="avatarCharacter" src="img/sofia.webp" alt="Sofía, avatar de DINAMO" draggable="false">
+          <div class="avatar-picture-shade"></div>
+          <div class="avatar-live-badge"><span></span> <b id="avatarBadge" style="font-weight:500">IA lista para conversar</b></div>
+          <div class="avatar-subtitulos" id="avatarSubtitulo" hidden></div>
+          <div class="avatar-wave" aria-hidden="true"><i style="--i:0;--h:8px"></i><i style="--i:1;--h:14px"></i><i style="--i:2;--h:20px"></i><i style="--i:3;--h:12px"></i><i style="--i:4;--h:24px"></i><i style="--i:5;--h:16px"></i><i style="--i:6;--h:28px"></i><i style="--i:7;--h:17px"></i><i style="--i:8;--h:11px"></i><i style="--i:9;--h:23px"></i><i style="--i:10;--h:30px"></i><i style="--i:11;--h:15px"></i><i style="--i:12;--h:21px"></i><i style="--i:13;--h:10px"></i><i style="--i:14;--h:26px"></i><i style="--i:15;--h:17px"></i><i style="--i:16;--h:12px"></i><i style="--i:17;--h:22px"></i><i style="--i:18;--h:28px"></i><i style="--i:19;--h:14px"></i><i style="--i:20;--h:19px"></i><i style="--i:21;--h:9px"></i><i style="--i:22;--h:24px"></i><i style="--i:23;--h:16px"></i><i style="--i:24;--h:11px"></i></div>
+        </div>
+        <div class="assistant-avatar-picks" aria-label="Elegir avatar del asistente">
+          <div class="assistant-avatar-picks-head"><strong>Avatar del asistente</strong><span>Elige quién te explica</span></div>
+          <div class="assistant-avatar-options">
+            <button type="button" class="assistant-avatar-option activo" data-assistant-avatar="sofia" aria-pressed="true"><img src="img/sofia.webp" alt=""><span>Sofía</span><small>Analista</small></button>
+            <button type="button" class="assistant-avatar-option" data-assistant-avatar="mateo" aria-pressed="false"><img src="img/mateo.webp" alt=""><span>Mateo</span><small>Analista</small></button>
+          </div>
+        </div>
+        <div class="avatar-control-block">
+          <div class="avatar-control-title"><span>Voz del asistente</span><span class="avatar-local-tag">Navegador</span></div>
+          <label class="avatar-label" for="avatarVoice">Voz en español</label>
+          <select id="avatarVoice" class="avatar-select"><option value="">Voz por defecto</option></select>
+          <div class="avatar-rate-head"><label for="avatarRate">Velocidad</label><output id="avatarRateValue" for="avatarRate">1,0×</output></div>
+          <input id="avatarRate" class="avatar-rate" type="range" min="0.75" max="1.25" step="0.05" value="1">
+          <label class="avatar-auto-read"><input id="avatarAutoRead" type="checkbox"> <span><b>Leer respuestas automáticamente</b><small>Si lo activas, el avatar leerá las respuestas nuevas.</small></span></label>
+          <div class="avatar-buttons">
+            <button class="btn primario" id="btnAvatarSpeak" type="button" title="Leer la respuesta más reciente">
+              <svg class="i" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12"/></svg> Escuchar respuesta
+            </button>
+            <button class="icon-btn avatar-ctrl" id="btnAvatarPause" type="button" aria-label="Pausar lectura" title="Pausar o reanudar"><svg class="i" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+            <button class="icon-btn avatar-ctrl" id="btnAvatarStop" type="button" aria-label="Detener lectura" title="Detener"><svg class="i" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+          </div>
+          <p class="avatar-privacy">La voz es el sintetizador del navegador. No hay sincronización labial: la imagen sólo se anima mientras suena la voz.</p>
+        </div>
+      </aside>
+
+      <aside class="dinamo-research-rail" id="dinamoResearchRail" aria-label="Documentos, análisis y fuentes">
+        <section class="rail-card rail-docs">
+          <div class="rail-card-head"><span class="rail-icon">▤</span><strong>Documentos cargados</strong><span class="rail-badge" id="railDocCount">0</span></div>
+          <div id="railDocsList" class="rail-docs-list"><div class="rail-empty">Sube un archivo: se guarda sin analizarse hasta que preguntes.</div></div>
+          <button class="rail-action" type="button" id="railUploadBtn"><span>＋</span> Añadir documentos</button>
+        </section>
+        <section class="rail-card">
+          <div class="rail-card-head"><span class="rail-icon">▥</span><strong>Análisis rápido</strong></div>
+          <div class="rail-fact"><span>Estado del espacio</span><b id="railStatus">Sin archivos</b></div>
+          <div class="rail-fact"><span>Archivos listos</span><b id="railReadyCount">0</b></div>
+          <div class="rail-fact"><span>Modo de IA</span><b id="railAIStatus">Detectando…</b></div>
+          <div class="rail-fact"><span>País de referencia</span><b id="railPais">Sin definir</b></div>
+          <select class="rail-select" id="selPaisRef" aria-label="País de referencia"></select>
+          <button class="rail-action primary" type="button" data-prompt="¿Qué datos tengo cargados y qué puedo preguntar?">¿Qué puedo analizar? <span>↗</span></button>
+        </section>
+        <section class="rail-card">
+          <div class="rail-card-head"><span class="rail-icon">⌘</span><strong>Herramientas de análisis</strong></div>
+          <button class="rail-tool" type="button" data-prompt="Calcula la rotación, la retención y el ausentismo"><span class="tool-glyph green">▧</span><span><b>Indicadores de talento</b><small>Rotación, retención, ausentismo</small></span><span class="rail-chevron">›</span></button>
+          <button class="rail-tool" type="button" data-prompt="¿Hay anomalías en los datos?"><span class="tool-glyph red">⚑</span><span><b>Revisar anomalías</b><small>Señales, no causas automáticas</small></span><span class="rail-chevron">›</span></button>
+          <button class="rail-tool" type="button" data-ir="datos"><span class="tool-glyph blue">◇</span><span><b>Limpiar datos</b><small>Propuestas que tú apruebas</small></span><span class="rail-chevron">›</span></button>
+          <button class="rail-tool" type="button" data-inv="estadisticas"><span class="tool-glyph purple">▥</span><span><b>Comparar países</b><small>Banco Mundial · país de referencia</small></span><span class="rail-chevron">›</span></button>
+          <button class="rail-tool" type="button" data-inv="web"><span class="tool-glyph orange">⌕</span><span><b>Investigar en la web</b><small>Fuentes leídas y citadas</small></span><span class="rail-chevron">›</span></button>
+          <button class="rail-tool" type="button" data-inv="academico"><span class="tool-glyph teal">✎</span><span><b>Artículos científicos</b><small>OpenAlex · Crossref · Semantic Scholar</small></span><span class="rail-chevron">›</span></button>
+        </section>
+        <section class="rail-card">
+          <div class="rail-card-head"><span class="rail-icon">✦</span><strong>Memoria del chat</strong><button class="rail-mini" id="btnRecordar" title="Añadir un dato a la memoria" style="color:var(--accent-strong)">＋</button></div>
+          <div id="railMemoria"></div>
+        </section>
+        <section class="rail-card">
+          <div class="rail-card-head"><span class="rail-icon">◎</span><strong>Evidencia y fuentes</strong></div>
+          <div id="railFuentes" class="rail-fuentes"><div class="rail-empty">Aquí verás los cálculos y las fuentes de cada respuesta.</div></div>
+        </section>
+      </aside>
+
+      <div class="mensajes" id="mensajes"><div class="hilo" id="hilo"></div></div>
+      <div class="composer-wrap">
+        <div class="composer" id="composer">
+          <div class="ctx-chips" id="ctxChips"></div>
+          <div class="composer-fila">
+            <button class="icon-btn" id="btnAdjuntar" title="Adjuntar archivos (sólo se guardan; no se analizan hasta que preguntes)" aria-label="Adjuntar archivos">
+              <svg class="i" viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>
+            </button>
+            <textarea id="entrada" rows="1" placeholder="Pregunta sobre tus datos, pide una investigación o conversa…" aria-label="Escribe tu pregunta"></textarea>
+            <button class="icon-btn btn-mic" id="btnDictar" type="button" aria-label="Dictar por voz" title="Dictar (rellena el texto; nunca envía solo)" aria-pressed="false">
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>
+            </button>
+            <button class="btn-enviar" id="btnEnviar" aria-label="Enviar" disabled>
+              <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+          <div class="dictado-estado" id="estadoDictado" role="status" aria-live="polite" hidden></div>
+        </div>
+        <div class="composer-nota">Enter para enviar · Shift+Enter para nueva línea · Cada cifra lleva su origen: pulsa <b>dato</b>, <b>doc</b> o <b>W1</b></div>
+      </div>
+    </section>
+
+    <!-- VISTA: DATOS -->
+    <section class="vista" id="vista-datos" hidden>
+      <div class="vista-head">
+        <h1>Tus datos</h1>
+        <button class="btn primario" id="btnSubirDatos"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V7M7 12l5-5 5 5M5 3h14"/></svg> Subir archivos</button>
+      </div>
+      <div class="cuerpo"><div class="cuerpo-inner" id="datosCuerpo"></div></div>
+    </section>
+
+    <!-- VISTA: INVESTIGACIÓN (única sección) -->
+    <section class="vista" id="vista-investigacion" hidden>
+      <div class="vista-head"><h1>Investigación</h1><span class="sub">Búsquedas reales con fuentes citables y estado de lectura</span></div>
+      <div class="cuerpo"><div class="cuerpo-inner" id="invCuerpo"></div></div>
+    </section>
+
+    <!-- VISTA: HISTORIAL -->
+    <section class="vista" id="vista-historial" hidden>
+      <div class="vista-head"><h1>Historial</h1></div>
+      <div class="cuerpo"><div class="cuerpo-inner" id="histCuerpo"></div></div>
+    </section>
+
+    <!-- VISTA: INTEGRACIONES -->
+    <section class="vista" id="vista-integraciones" hidden>
+      <div class="vista-head"><h1>Integraciones</h1><button class="btn primario" id="btnComprobar">Comprobar conexiones</button></div>
+      <div class="cuerpo"><div class="cuerpo-inner" id="intCuerpo"></div></div>
+    </section>
+  </main>
+</div>
+
+<input type="file" id="inputArchivos" multiple hidden accept=".csv,.xlsx,.xlsm,.xls,.pdf,.txt,.md">
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="graficos.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -137,7 +137,9 @@ class CompararGrupos(Skill):
                 dropna=False,
             )["valor"]
             .agg(
-                valor="median",
+                # Para una métrica 0/1 la mediana sólo puede ser 0 o 1 y oculta la diferencia:
+                # se usa la proporción (promedio) de entidades con valor 1.
+                valor="mean" if met.rol == "binaria" else "median",
                 n="count",
             )
             .reset_index()
@@ -191,15 +193,16 @@ class CompararGrupos(Skill):
                 crear_evidencia(
                     self.nombre,
                     (
-                        f"Mediana de {nombre_metrica} "
+                        f"{'Proporción' if met.rol == 'binaria' else 'Mediana'} de {nombre_metrica} "
                         f"en {nombre_grupo}={categoria}"
                     ),
                     valor,
                     met.unidad,
                     n,
                     (
-                        "mediana de los valores "
-                        "agregados por entidad"
+                        "proporción de entidades con valor 1"
+                        if met.rol == "binaria" else
+                        "mediana de los valores agregados por entidad"
                     ),
                     {
                         **contexto,
@@ -252,14 +255,15 @@ class CompararGrupos(Skill):
             crear_evidencia(
                 self.nombre,
                 (
-                    f"Diferencia entre la mediana de "
+                    f"Diferencia entre la {'proporción' if met.rol == 'binaria' else 'mediana'} de "
                     f"{nombre_metrica} de "
                     f"{categoria_mayor} y {categoria_menor}"
                 ),
                 diferencia,
                 unidad_diferencia,
                 n_comparacion,
-                "mediana del grupo mayor - mediana del grupo menor",
+                ("proporción del grupo mayor - proporción del grupo menor" if met.rol == "binaria"
+                 else "mediana del grupo mayor - mediana del grupo menor"),
                 {
                     **contexto,
                     "grupo_mayor": _simple(categoria_mayor),

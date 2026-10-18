@@ -1,0 +1,8 @@
+# Dependencias mínimas del asistente DINAMO (servidor local + interfaz web).
+# No incluye Streamlit ni scikit-learn (sólo se usan en app/streamlit_app.py).
+pandas>=2.1
+numpy>=1.26
+openpyxl>=3.1
+pdfplumber>=0.10
+requests>=2.31
+scipy>=1.11

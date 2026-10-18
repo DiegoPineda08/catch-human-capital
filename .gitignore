@@ -13,3 +13,10 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Fase 1: configuración local y datos de conversaciones (nunca se suben)
+.env
+.dinamo_datos/
+
+# Copias locales de entornos virtuales del lanzador
+.venv/

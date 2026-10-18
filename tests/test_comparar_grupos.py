@@ -173,3 +173,18 @@ def test_exige_metrica_y_dimension(datos_panel):
                 "metrica": "ventas",
             },
         )
+
+
+def test_metrica_binaria_usa_proporcion_no_mediana():
+    """Con una marca 0/1 (p.ej. renunció) la mediana por grupo sería 0 o 1: se usa la proporción."""
+    import pandas as pd
+    from dinamo.data_engine import DataEngine
+    from dinamo.skills import CompararGrupos
+    df = pd.DataFrame({"empleado_id": range(1001, 1041), "area": ["A"] * 20 + ["B"] * 20,
+                       "salario": [1000 + 13 * i for i in range(40)],
+                       "renuncio": [1] * 6 + [0] * 14 + [1] * 2 + [0] * 18})
+    m = DataEngine.desde_tabla(df, "emp")
+    res = CompararGrupos()(m, {"metrica": "renuncio", "dimension": "area"})
+    valores = {e.filtros.get("grupo"): e.valor for e in res.evidencias if "grupo" in e.filtros}
+    assert valores == {"A": 0.3, "B": 0.1}
+    assert any(abs(e.valor - 0.2) < 1e-9 and e.unidad == "diferencia_proporcion" for e in res.evidencias)
